@@ -1,0 +1,63 @@
+# Risk levels, coercion scoring and (from B4) fusion weights. All tunable numbers live here.
+
+levels:
+  # LOW < medium <= MEDIUM < high <= HIGH < critical <= CRITICAL
+  medium: 0.30
+  high: 0.55
+  critical: 0.80
+
+coercion:
+  # Weight of each tactic's strength in the combined score (noisy-OR across tactics).
+  tactic_weights:
+    AUTHORITY: 0.30
+    THREAT: 0.40
+    URGENCY: 0.25
+    SECRECY: 0.40
+    ISOLATION: 0.35
+    PAYMENT: 0.45
+    CREDENTIAL: 0.45
+
+  # Stages of the classic chain: authority -> threat -> secrecy -> payment.
+  stages:
+    AUTHORITY: 1
+    THREAT: 2
+    URGENCY: 2
+    SECRECY: 3
+    ISOLATION: 3
+    PAYMENT: 4
+    CREDENTIAL: 4
+
+  # Multiplier by number of distinct stages reached so far (1..4).
+  chain_factor: {1: 0.60, 2: 0.85, 3: 1.00, 4: 1.10}
+  # Extra multiplier when stages were first reached in chain order (1 before 2 before 3 before 4).
+  ordered_bonus: 0.05
+
+  # Protective cues ("never share your OTP", "call the number on your card") reduce the score
+  # by up to this fraction. Capped so a scammer can't talk the score down by reciting advice.
+  protective_max_reduction: 0.30
+
+  # Rule caps (applied after scoring):
+  # a single keyword / single utterance can never reach HIGH
+  min_tactics_for_high: 2
+  min_utterances_for_high: 2
+  # CRITICAL requires one of `critical_requires_any` AND one of `critical_with_any`
+  # (a verification mismatch also satisfies the second condition once verification exists).
+  critical_requires_any: [PAYMENT, CREDENTIAL]
+  critical_with_any: [THREAT, SECRECY]
+  cap_margin: 0.01
+
+matching:
+  # rapidfuzz ratio (0-100) needed for a fuzzy match, by normalized pattern length in characters.
+  # Short patterns (otp, pin, cbi) must match exactly.
+  exact_max_chars: 3
+  min_ratio_short: 92    # 4-6 chars
+  min_ratio_medium: 82   # 7-12 chars
+  min_ratio_long: 78     # 13+ chars
+  # Pattern tokens must align, in order, to distinct window tokens with at least this token ratio
+  # ("kya karna hoga" must not match "jama karna hoga"; "aadhe ghante" must not match
+  # "do ghante"). Negation words must match exactly. Only `optional_tokens` may be missing,
+  # and only in patterns of 3+ tokens.
+  min_token_ratio: 50
+  optional_tokens: ["ke", "ko", "se", "ka", "ki", "ne", "the", "a", "an", "to", "of", "on", "in", "me", "mein", "hai", "ho", "bhi", "is"]
+  # A match's confidence is (ratio - min_ratio) scaled into [floor, 1.0].
+  confidence_floor: 0.75

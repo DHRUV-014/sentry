@@ -1,4 +1,7 @@
-"""Per-call audio pipeline: frames -> ring buffer -> VAD -> STT worker -> utterance events."""
+"""Per-call audio pipeline.
+
+frames -> ring buffer -> VAD -> STT worker -> utterance event -> text analysis (coercion, entities)
+"""
 
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel
 
+from app.analysis import CallAnalyzer
 from app.audio.buffer import FRAME_BYTES, RingBuffer
 from app.audio.stt import STTProvider, STTUnavailable
 from app.audio.vad import Segment, VadSegmenter
@@ -54,8 +58,10 @@ class CallPipeline:
         stt: STTProvider,
         segmenter: VadSegmenter,
         components: ComponentRegistry,
+        analyzer: CallAnalyzer | None = None,
     ) -> None:
         self.session_id = session_id
+        self._analyzer = analyzer
         self._bus = bus
         self._settings = settings
         self._stt = stt
@@ -165,6 +171,22 @@ class CallPipeline:
             payload.stt_latency_ms,
         )
         await self._publish(payload)
+        await self._analyze(payload)
+
+    async def _analyze(self, utterance: UtterancePayload) -> None:
+        if self._analyzer is None or not utterance.text:
+            return
+        try:
+            coercion, entities = await self._analyzer.analyze(
+                utterance.utterance_id, utterance.t_start_s, utterance.text
+            )
+        except Exception:
+            log.exception("text analysis failed for %s", utterance.utterance_id)
+            self._components.set("lexicon", ComponentStatus.DEGRADED, "analysis error, see logs")
+            return
+        await self._bus.publish(EventType.COERCION, coercion)
+        if entities is not None:
+            await self._bus.publish(EventType.ENTITIES, entities)
 
     def _payload(self, segment: Segment, status: SttStatus, detail: str = "") -> UtterancePayload:
         self._utterance_count += 1

@@ -2,7 +2,7 @@ PYTHON ?= /opt/homebrew/bin/python3.11
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: setup run test lint fmt clean test-audio bench-stt stt-report demo-wav
+.PHONY: setup run test lint fmt clean test-audio bench-stt stt-report coercion-report demo-wav
 
 setup:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
@@ -25,6 +25,10 @@ bench-stt:
 # Needs a running server (make run in another terminal).
 stt-report:
 	$(BIN)/python -m tools.stt_report
+
+# Coercion trajectories for the fixtures and the latest live STT run.
+coercion-report:
+	$(BIN)/python -m tools.coercion_report -v
 
 demo-wav:
 	@test -n "$(FILE)" || (echo "usage: make demo-wav FILE=path/to/audio.wav" && exit 1)

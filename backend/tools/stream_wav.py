@@ -70,6 +70,14 @@ def format_event(event: dict) -> str:
             f"{span} {p['lang']:5s} lat={p['stt_latency_ms']:6.0f}ms "
             f"inf={p['inference_ms']:6.0f}ms ({probs})  {p['text']}"
         )
+    if kind == "coercion":
+        hits = ", ".join(
+            f'{h["tactic"]}{"(neg)" if h["negated"] else ""} "{h["span"]}"' for h in p["hits"]
+        )
+        caps = f" caps={p['caps_applied']}" if p["caps_applied"] else ""
+        return f"      ↳ coercion {p['level']:8s} {p['score']:.2f}{caps}  {hits}"
+    if kind == "entities":
+        return "      ↳ entities " + ", ".join(f"{e['kind']}={e['value']}" for e in p["entities"])
     if kind == "status":
         detail = f" ({p['detail']})" if p.get("detail") else ""
         return f"  · {p['component']}: {p['status']}{detail}"

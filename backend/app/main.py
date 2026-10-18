@@ -9,11 +9,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
+from app.analysis import CallAnalyzer
 from app.audio.buffer import FRAME_BYTES
 from app.audio.stt import FasterWhisperProvider, STTProvider
 from app.audio.vad import VadConfig, VadSegmenter, WebRtcVad
+from app.coercion.engine import CoercionEngine
 from app.components import ComponentRegistry
 from app.config import Settings, get_settings
+from app.entities.extract import EntityExtractor
 from app.events import ComponentStatus, EventBus
 from app.pipeline import CallPipeline
 from app.session import SessionManager
@@ -27,7 +30,6 @@ VadClassifier = Callable[[bytes], bool]
 
 
 def _init_component_status(settings: Settings, components: ComponentRegistry) -> None:
-    components.set("lexicon", ComponentStatus.UNAVAILABLE, "coercion lexicon not implemented yet")
     if settings.llm_enabled:
         components.set("llm", ComponentStatus.UNAVAILABLE, "LLM tagger not implemented yet")
     else:
@@ -91,6 +93,16 @@ def create_app(
 
         vad_config = VadConfig.from_settings(settings)
 
+        engine: CoercionEngine | None = None
+        extractor: EntityExtractor | None = None
+        try:
+            engine = CoercionEngine.load()
+            extractor = EntityExtractor.load(engine.lexicon.cfg)
+            components.set("lexicon", ComponentStatus.OK, engine.describe())
+        except Exception as exc:
+            log.exception("coercion lexicon failed to load")
+            components.set("lexicon", ComponentStatus.UNAVAILABLE, f"load failed: {exc}")
+
         def make_pipeline(session_id: str, bus: EventBus) -> CallPipeline | None:
             if classifier is None:
                 return None
@@ -101,6 +113,7 @@ def create_app(
                 stt_provider,
                 VadSegmenter(vad_config, classifier),
                 components,
+                analyzer=CallAnalyzer(engine, extractor) if engine and extractor else None,
             )
 
         sessions = SessionManager(settings, storage, components, pipeline_factory=make_pipeline)

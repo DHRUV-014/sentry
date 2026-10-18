@@ -26,10 +26,13 @@ class FakeSTT:
 
     name = "fake"
 
-    def __init__(self, mode: str = "ok", delay: float = 0.0) -> None:
+    def __init__(
+        self, mode: str = "ok", delay: float = 0.0, texts: list[str] | None = None
+    ) -> None:
         self.mode = mode
         self.delay = delay
         self.loaded = False
+        self.texts = list(texts or [])
 
     def status(self):
         return (ComponentStatus.OK, "fake") if self.loaded else (ComponentStatus.UNAVAILABLE, "no")
@@ -54,7 +57,7 @@ class FakeSTT:
             raise TimeoutError
         await asyncio.sleep(self.delay)
         return Transcript(
-            text=f"{len(pcm)} samples",
+            text=self.texts.pop(0) if self.texts else f"{len(pcm)} samples",
             lang="en",
             detected_language="en",
             lang_confidence=0.9,
@@ -163,3 +166,34 @@ def test_audio_socket_refused_while_stt_still_loading(settings):
         ):
             ws.receive_bytes()
     assert exc.value.code == 4503
+
+
+def test_utterances_feed_coercion_and_entity_events(settings):
+    utterance = [SPEECH] * 40 + [SILENCE] * 40
+    texts = [
+        "Main crime branch se inspector bol raha hoon.",
+        "Aapke khilaf arrest warrant hai, kisi ko mat batana.",
+        "Abhi turant verify dot rbi at ybl par paise bhejne honge.",
+    ]
+    with make_client(settings, FakeSTT(texts=texts)) as client:
+        assert client.get("/health").json()["components"]["lexicon"]["status"] == "ok"
+        wait_for_stt(client)
+        _, events = stream_call(client, utterance * 3)
+
+    coercion = [e["payload"] for e in events if e["type"] == "coercion"]
+    entities = [e["payload"] for e in events if e["type"] == "entities"]
+    assert [c["utterance_id"] for c in coercion] == ["u1", "u2", "u3"]
+    assert coercion[-1]["level"] in ("HIGH", "CRITICAL")
+    assert {h["tactic"] for c in coercion for h in c["hits"]} >= {
+        "AUTHORITY", "THREAT", "SECRECY", "PAYMENT", "URGENCY",
+    }  # fmt: skip
+    claims = {(e["kind"], e["value"]) for e in entities[-1]["claims_so_far"]}
+    assert ("upi", "verify.rbi@ybl") in claims
+    assert ("institution", "Police (Crime Branch)") in claims
+    # Each coercion event follows its utterance event.
+    order = [
+        (e["type"], e["payload"].get("utterance_id"))
+        for e in events
+        if e["type"] in ("utterance", "coercion")
+    ]
+    assert order == [(t, f"u{i}") for i in (1, 2, 3) for t in ("utterance", "coercion")]

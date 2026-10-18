@@ -46,8 +46,8 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
 | B1 | Skeleton: config, events, bus, sessions, `/health`, Makefile | ✅ done |
 | B2 | Audio ingest + VAD + STT, `tools/stream_wav.py`, STT benchmark | ✅ done |
 | B2.1 | Never translate, Hindi fallback, warm-up gate, shared text normalization, prompt experiment | ✅ done |
-| B3 | Coercion engine (lexicon + sequence) + entity extraction | next |
-| B3.5 | Train our coercion classifier | |
+| B3 | Coercion engine (lexicon + sequence) + entity extraction | ✅ done |
+| B3.5 | Train our coercion classifier | next |
 | B4 | Risk fusion + alert dispatcher with the **dashboard** alert channel | |
 | F1 | WebRTC call `/caller` ↔ `/elder` streaming to the backend | |
 | F2 | `/elder` live risk banner + full-screen warning (English + Hindi) | |
@@ -105,9 +105,11 @@ backend/
   app/pipeline.py        Per-call: frames -> ring buffer -> VAD -> STT worker -> utterance events
   app/storage.py         SQLite: sessions, events, alerts (no audio)
   app/audio/             buffer.py (ring buffer), vad.py (segmenter), stt.py (providers)
-  app/coercion/          lexicon.yaml, lexicon.py, sequence.py, engine.py         (B3)
-  app/entities/          extract.py                                              (B3)
-  app/risk/              weights.yaml, fusion.py                                 (B4)
+  app/text/              normalize.py + variants.yaml (shared normalizer)
+  app/analysis.py        Per-call analyzer: coercion + entities on each utterance
+  app/coercion/          lexicon.yaml, lexicon.py (fuzzy matcher), sequence.py (chain + caps), engine.py
+  app/entities/          extract.py, institutions.yaml (gazetteer + UPI handles)
+  app/risk/              weights.yaml (levels, coercion scoring, matching), levels.py; fusion.py (B4)
   app/alerts/            dispatcher.py, channels (dashboard; sms/whatsapp in B9) (B4)
   app/voice/             antispoof.py (interface; model in B5)
   app/verify/            verifier.py  (interface; TinyFish in B6)
@@ -137,7 +139,17 @@ Every event uses the envelope `{v, type, session_id, seq, ts, payload}`.
   - When `stt_status=ok`: `text`, `lang`, `detected_language`, `lang_probs`, `stt_latency_ms`,
     `inference_ms`, `stt_model`, `avg_logprob`, `no_speech_prob`.
   - When it isn't `ok`, `text` is `null` and is never guessed.
-- **`coercion`, `entities`, `risk`, `alert`:** defined in B3 and B4. Update this section when they land.
+- **`coercion`** (after every transcribed utterance):
+  - `hits[]`: `{tactic, pattern, span, weight, confidence, score, negated, source}`. `span` is the
+    original transcript text.
+  - Call-level fields: `score`, `raw_score`, `level`, `tactic_strengths`, `stages_reached`,
+    `chain[]` (`{tactic, stage, utterance_id, t_s}`), `ordered`, `protective_strength`,
+    `caps_applied`, `contributions[]` (`{signal, value, weight, evidence_utterance_id}`),
+    `llm_status`.
+- **`entities`** (when an utterance contains any):
+  - `entities[]`: `{kind: phone|upi|url|case_id|institution, value, raw, detail}`
+  - `claims_so_far[]`: every distinct claim in the call so far.
+- **`risk`, `alert`:** B4.
 
 ## STT facts that shape later milestones (B2 benchmark, Apple M3, synthetic TTS)
 
@@ -175,6 +187,7 @@ make lint / make fmt       # ruff
 make test-audio            # render tests/audio_scripts/*.yaml -> samples/synthetic_tts/*.wav (+ .json timings)
 make bench-stt             # benchmark tiny/base/small on this machine
 make stt-report            # live: stream all synthetic WAVs through the running server, WER + latency
+make coercion-report       # coercion trajectories: fixtures + latest live STT run
 make demo-wav FILE=...     # stream any audio file in real time and print events
 ```
 
@@ -185,5 +198,10 @@ make demo-wav FILE=...     # stream any audio file in real time and print events
 - A new external call needs a timeout, `status` reporting, and a test for the unavailable path.
 - Keep upload, live call and test paths identical downstream of `/ws/audio`.
 - Commit messages: imperative and scoped (`coercion: add isolation cues for hi`).
+- **YAML gotcha:** quote words like `no`, `on`, `off`, `yes`. YAML 1.1 parses them as booleans,
+  which has bitten the lexicon twice.
+- **Lexicon changes:** run `make coercion-report` before and after, and report both. Fixtures in
+  `tests/fixtures/conversations.yaml` informed some B3 lexicon entries, so they're no longer a clean
+  held-out set. Keep new held-out conversations separate (B7).
 - To stop a server you started, use `kill $(lsof -tnP -iTCP:8000 -sTCP:LISTEN)`. `pkill -f "python -m app"`
   misses it, because macOS reports the process as `Python`.
