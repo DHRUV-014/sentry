@@ -7,15 +7,19 @@ import contextlib
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from app.components import ComponentRegistry, ComponentState
 from app.config import Settings
 from app.events import EventBus, EventType, StatusPayload
+from app.pipeline import CallPipeline
 from app.storage import Storage
 
 log = logging.getLogger(__name__)
+
+PipelineFactory = Callable[[str, EventBus], CallPipeline | None]
 
 
 @dataclass
@@ -23,6 +27,8 @@ class Session:
     id: str
     created_at: datetime
     bus: EventBus
+    pipeline: CallPipeline | None = None
+    audio_connected: bool = False
     last_activity: float = field(default_factory=time.monotonic)
     ended: bool = False
 
@@ -31,8 +37,15 @@ class Session:
 
 
 class SessionManager:
-    def __init__(self, settings: Settings, storage: Storage, components: ComponentRegistry):
+    def __init__(
+        self,
+        settings: Settings,
+        storage: Storage,
+        components: ComponentRegistry,
+        pipeline_factory: PipelineFactory | None = None,
+    ):
         self._settings = settings
+        self._pipeline_factory = pipeline_factory
         self._storage = storage
         self._components = components
         self._sessions: dict[str, Session] = {}
@@ -65,6 +78,8 @@ class SessionManager:
             sink=self._storage.save_event,
         )
         session = Session(id=session_id, created_at=created_at, bus=bus)
+        if self._pipeline_factory is not None:
+            session.pipeline = self._pipeline_factory(session_id, bus)
         self._sessions[session_id] = session
         await bus.publish(EventType.STATUS, StatusPayload(component="session", status="started"))
         # Every session starts with the current status of every component.
@@ -81,6 +96,12 @@ class SessionManager:
         if session is None:
             return False
         session.ended = True
+        if session.pipeline is not None:
+            # Let in-flight utterances finish so the event stream is complete before "ended".
+            budget = self._settings.stt_timeout_s * (self._settings.stt_max_backlog + 1)
+            if not await session.pipeline.drain(budget_s=budget):
+                log.warning("session %s: pipeline did not drain within %.0fs", session_id, budget)
+            await session.pipeline.close()
         await session.bus.publish(
             EventType.STATUS,
             StatusPayload(component="session", status="ended", detail=reason),

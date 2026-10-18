@@ -12,7 +12,7 @@ def test_session_lifecycle_streams_status_events(client):
         assert first["seq"] == 1
 
         components = {ws.receive_json()["payload"]["component"] for _ in range(8)}
-        assert {"stt", "vad", "lexicon", "telegram"} <= components
+        assert {"stt", "vad", "lexicon", "alerts"} <= components
 
         assert client.post(f"/sessions/{session_id}/end").json()["ended"] is True
         last = ws.receive_json()

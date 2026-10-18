@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -27,19 +27,47 @@ class Settings(BaseSettings):
     event_queue_size: int = Field(256, gt=0)
     event_replay_size: int = Field(200, ge=0)
 
-    llm_enabled: bool = False
+    # Audio ingest: 16 kHz mono int16, 20 ms frames. Kept in memory only.
+    audio_ring_seconds: float = Field(30, gt=0)
 
-    telegram_bot_token: SecretStr | None = None
-    telegram_bot_username: str | None = None
-    telegram_timeout_s: float = Field(5, gt=0)
+    # Voice activity detection (webrtcvad)
+    vad_aggressiveness: int = Field(2, ge=0, le=3)
+    vad_start_speech_ms: int = Field(60, gt=0)
+    vad_end_silence_ms: int = Field(600, gt=0)
+    vad_max_utterance_ms: int = Field(8000, gt=0)
+    vad_preroll_ms: int = Field(200, ge=0)
+    vad_min_speech_ms: int = Field(300, ge=0)
+
+    # Speech-to-text (faster-whisper, CPU)
+    stt_model: str = "small"
+    # Smaller model used only for language ID (empty = use stt_model).
+    stt_detect_model: str = "tiny"
+    stt_compute_type: str = "int8"
+    stt_cpu_threads: int = Field(4, gt=0)
+    stt_beam_size: int = Field(1, gt=0)
+    # Guards against Whisper's repetition loops ("क्राँँँँँ..."), which also blow up latency.
+    # no_repeat_ngram_size works on byte-level tokens and hurt Hindi WER (42% -> 47%), so it's off.
+    stt_repetition_penalty: float = Field(1.1, ge=1.0)
+    stt_no_repeat_ngram_size: int = Field(0, ge=0)
+    stt_languages: list[str] = ["hi", "en"]
+    stt_timeout_s: float = Field(8, gt=0)
+    stt_max_backlog: int = Field(4, gt=0)
+    stt_download_root: Path = Path("models/whisper")
+    # Whisper's own no-speech rule: drop when no_speech_prob > X and avg_logprob < Y.
+    stt_no_speech_threshold: float = 0.6
+    stt_logprob_threshold: float = -1.0
+    stt_load_on_startup: bool = True
+
+    llm_enabled: bool = False
 
     @property
     def resolved_db_path(self) -> Path:
         return self.db_path if self.db_path.is_absolute() else BACKEND_DIR / self.db_path
 
     @property
-    def telegram_configured(self) -> bool:
-        return bool(self.telegram_bot_token and self.telegram_bot_token.get_secret_value())
+    def resolved_stt_download_root(self) -> Path:
+        root = self.stt_download_root
+        return root if root.is_absolute() else BACKEND_DIR / root
 
 
 @lru_cache
