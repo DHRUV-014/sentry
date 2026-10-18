@@ -33,6 +33,8 @@ class UtterancePayload(BaseModel):
     text: str | None = None
     lang: str | None = None
     detected_language: str | None = None
+    lang_confidence: float | None = None
+    lang_decision: str | None = None
     lang_probs: dict[str, float] = {}
     avg_logprob: float | None = None
     no_speech_prob: float | None = None
@@ -143,12 +145,25 @@ class CallPipeline:
         payload.text = result.text
         payload.lang = result.lang
         payload.detected_language = result.detected_language
+        payload.lang_confidence = result.lang_confidence
+        payload.lang_decision = result.lang_decision
         payload.lang_probs = result.lang_probs
         payload.avg_logprob = result.avg_logprob
         payload.no_speech_prob = result.no_speech_prob
         payload.inference_ms = result.inference_ms
         payload.stt_latency_ms = round((time.perf_counter() - closed_at) * 1000, 1)
         payload.stt_model = result.model
+        log.info(
+            "%s %s %.1f-%.1fs lang=%s (%s, p=%.2f) stt=%.0fms",
+            self.session_id[:8],
+            payload.utterance_id,
+            segment.start_s,
+            segment.end_s,
+            result.detected_language,
+            result.lang_decision,
+            result.lang_confidence,
+            payload.stt_latency_ms,
+        )
         await self._publish(payload)
 
     def _payload(self, segment: Segment, status: SttStatus, detail: str = "") -> UtterancePayload:

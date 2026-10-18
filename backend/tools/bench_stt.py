@@ -5,7 +5,11 @@ the same segments (same settings as the server: int8 CPU, language restricted to
 Reports per-utterance inference latency and WER against the script text, and picks the largest
 model whose p95 latency stays under --budget-ms.
 
+With --prompt-file, also reports how often prompt words appear in benign/normal calls where the
+script doesn't contain them (a vocabulary prompt can bias Whisper toward hallucinating scam words).
+
 Usage: python -m tools.bench_stt [--models tiny base small] [--dir ../samples/synthetic_tts]
+                                 [--prompt-file tools/stt_prompt_candidate.txt]
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from app.audio.vad import VadConfig, VadSegmenter, WebRtcVad
 from app.config import get_settings
 from tools.make_test_audio import DEFAULT_OUT
 from tools.stream_wav import load_pcm16k
-from tools.wer import Report, format_table, score
+from tools.wer import Report, format_table, norm_tokens, score
 
 
 def segment_file(path: Path, settings) -> list:
@@ -49,9 +53,16 @@ def main() -> None:
     parser.add_argument("--models", nargs="+", default=["tiny", "base", "small"])
     parser.add_argument("--dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--budget-ms", type=float, default=2000)
+    parser.add_argument("--prompt-file", type=Path, help="use this text as initial_prompt")
     args = parser.parse_args()
 
     settings = get_settings()
+    prompt_words: set[str] = set()
+    if args.prompt_file:
+        prompt = args.prompt_file.read_text(encoding="utf-8").strip()
+        settings = settings.model_copy(update={"stt_initial_prompt": prompt})
+        prompt_words = {w for phrase in prompt.split(",") for w in norm_tokens(phrase)}
+        print(f"initial_prompt ({len(prompt.split(','))} terms): {prompt[:80]}...")
     files = sorted(args.dir.glob("synthetic_*.wav"))
     if not files:
         raise SystemExit(f"no synthetic_*.wav in {args.dir}; run `make test-audio` first")
@@ -75,6 +86,7 @@ def main() -> None:
         load_s = time.perf_counter() - t_load
 
         latencies, durations, report = [], [], Report()
+        insertions = 0
         for _, manifest, segments in corpus:
             utts = []
             for seg in segments:
@@ -82,7 +94,12 @@ def main() -> None:
                 latencies.append(tr.inference_ms)
                 durations.append(len(seg.pcm) / SAMPLE_RATE)
                 utts.append((seg.start_s, seg.end_s, tr.text))
-            report.extend(score(manifest, utts))
+            file_report = score(manifest, utts)
+            report.extend(file_report)
+            if prompt_words and manifest["category"] != "scam":
+                for t in file_report.turns:
+                    ref = set(t.ref_norm)
+                    insertions += sum(1 for w in t.hyp_norm if w in prompt_words and w not in ref)
         lat = np.array(latencies)
         results[size] = {
             "load_s": load_s,
@@ -98,6 +115,8 @@ def main() -> None:
             f"p95 {r['p95_ms']:.0f} ms, max {r['max_ms']:.0f} ms | RTF {r['rtf']:.2f}"
         )
         print(format_table(r["wer"]))
+        if prompt_words:
+            print(f"prompt words inserted into benign/normal calls: {insertions}")
         print()
 
     within = [m for m in args.models if results[m]["p95_ms"] <= args.budget_ms]

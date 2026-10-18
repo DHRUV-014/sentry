@@ -39,7 +39,9 @@ class STTUnavailable(Exception):
 class Transcript(BaseModel):
     text: str
     lang: Lang
-    detected_language: str
+    detected_language: str  # language the text was decoded in
+    lang_confidence: float  # language-ID probability of the top allowed language
+    lang_decision: Literal["detected", "fallback"]
     lang_probs: dict[str, float]
     avg_logprob: float | None
     no_speech_prob: float | None
@@ -53,6 +55,10 @@ class STTProvider(Protocol):
     def status(self) -> tuple[ComponentStatus, str]: ...
 
     async def load(self) -> None: ...
+
+    async def wait_ready(self, budget_s: float) -> bool:
+        """True once loading has finished (successfully or not); False if still loading."""
+        ...
 
     async def transcribe(self, pcm: np.ndarray) -> Transcript:
         """Transcribe 16 kHz mono int16 audio. Raises STTUnavailable or TimeoutError."""
@@ -90,6 +96,9 @@ class FasterWhisperProvider:
         detect_model_size: str | None = None,
         repetition_penalty: float = 1.0,
         no_repeat_ngram_size: int = 0,
+        lang_min_confidence: float = 0.0,
+        lang_fallback: str | None = None,
+        initial_prompt: str = "",
     ) -> None:
         self.model_size = model_size
         self.detect_model_size = detect_model_size or model_size
@@ -102,6 +111,10 @@ class FasterWhisperProvider:
         self._download_root = download_root
         self._repetition_penalty = repetition_penalty
         self._no_repeat_ngram_size = no_repeat_ngram_size
+        self._lang_min_confidence = lang_min_confidence
+        self._lang_fallback = lang_fallback or languages[0]
+        self._initial_prompt = initial_prompt or None
+        self._ready = asyncio.Event()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt")
         self._model = None
         self._detector = None
@@ -120,6 +133,9 @@ class FasterWhisperProvider:
             detect_model_size=s.stt_detect_model or None,
             repetition_penalty=s.stt_repetition_penalty,
             no_repeat_ngram_size=s.stt_no_repeat_ngram_size,
+            lang_min_confidence=s.stt_lang_min_confidence,
+            lang_fallback=s.stt_lang_fallback,
+            initial_prompt=s.stt_initial_prompt,
         )
 
     def status(self) -> tuple[ComponentStatus, str]:
@@ -144,8 +160,18 @@ class FasterWhisperProvider:
             log.exception("STT model failed to load")
             self._model = self._detector = None
             self._status = (ComponentStatus.UNAVAILABLE, f"load failed: {exc}")
-            return
-        self._status = (ComponentStatus.OK, self._describe())
+        else:
+            self._status = (ComponentStatus.OK, self._describe())
+        finally:
+            self._ready.set()
+
+    async def wait_ready(self, budget_s: float) -> bool:
+        """Wait until loading has finished (successfully or not). False if still loading."""
+        try:
+            await asyncio.wait_for(self._ready.wait(), budget_s)
+            return True
+        except TimeoutError:
+            return False
 
     def _load_sync(self) -> None:
         from faster_whisper import WhisperModel
@@ -189,11 +215,18 @@ class FasterWhisperProvider:
         t0 = time.perf_counter()
         _, _, all_probs = self._detector.detect_language(audio)
         allowed = {lang: p for lang, p in all_probs if lang in self._languages}
-        language = max(allowed, key=allowed.get) if allowed else self._languages[0]
+        top = max(allowed, key=allowed.get) if allowed else self._lang_fallback
+        confidence = allowed.get(top, 0.0)
+        if confidence >= self._lang_min_confidence:
+            language, decision = top, "detected"
+        else:
+            language, decision = self._lang_fallback, "fallback"
 
         segments, _ = self._model.transcribe(
             audio,
             language=language,
+            task="transcribe",  # never translate
+            initial_prompt=self._initial_prompt,
             beam_size=self._beam_size,
             temperature=0.0,
             repetition_penalty=self._repetition_penalty,
@@ -210,6 +243,8 @@ class FasterWhisperProvider:
             text=text,
             lang=script_lang(text, language),
             detected_language=language,
+            lang_confidence=round(confidence, 4),
+            lang_decision=decision,
             lang_probs={lang: round(p, 4) for lang, p in allowed.items()},
             avg_logprob=avg_logprob,
             no_speech_prob=no_speech,

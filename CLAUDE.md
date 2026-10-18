@@ -45,6 +45,7 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
 |---|---|---|
 | B1 | Skeleton: config, events, bus, sessions, `/health`, Makefile | ✅ done |
 | B2 | Audio ingest + VAD + STT, `tools/stream_wav.py`, STT benchmark | ✅ done |
+| B2.1 | Never translate, Hindi fallback, warm-up gate, shared text normalization, prompt experiment | ✅ done |
 | B3 | Coercion engine (lexicon + sequence) + entity extraction | next |
 | B3.5 | Train our coercion classifier | |
 | B4 | Risk fusion + alert dispatcher with the **dashboard** alert channel | |
@@ -82,7 +83,13 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
 - **Audio:**
   - webrtcvad (`webrtcvad-wheels`)
   - faster-whisper on CPU, int8: `small` for transcription, `tiny` for Hindi/English language ID
-- **Text:** rapidfuzz for fuzzy lexicon matching.
+- **Text:**
+  - `app/text/normalize.py` is the single normalizer for WER, the lexicon and the classifier.
+    It romanizes Devanagari (`indic-transliteration` ITRANS, then Hindi schwa deletion), applies a
+    phonetic key, then the spelling variants and context-dependent STT confusions in `variants.yaml`.
+  - The original text and character spans are kept: evidence shown to users always uses the
+    original text.
+  - rapidfuzz for fuzzy matching on normalized text.
 - **Frontend (F1–F4):** React + Vite + TypeScript + Tailwind, WebRTC, and an AudioWorklet that
   downsamples to 16 kHz mono int16.
 
@@ -146,6 +153,17 @@ Every event uses the envelope `{v, type, session_id, seq, ts, payload}`.
 - **Forced English can translate.** When language ID picks `en` for Hindi speech, Whisper sometimes
   *translates* it to English instead of transcribing. The coercion engine must work on English
   paraphrases too.
+  - Mitigation (B2.1): `task="transcribe"`, and `en` is used only when language ID is at least
+    `STT_LANG_MIN_CONFIDENCE` (0.5) confident; otherwise the fallback is `hi`.
+- **`initial_prompt` is rejected.** A 32-term scam/bank/police prompt raised English WER from 4% to
+  87%, raised p95 latency by about 70%, and inserted 62 scam words into benign calls. Never re-enable
+  it without re-running `make bench-stt --prompt-file ...`.
+- **Greeting loss is not a VAD problem.** Hindi-mode Whisper drops English-accented romanized
+  greetings ("Hello Nani, main…"). Pre-roll 300 ms and a lower start threshold didn't recover them.
+- **Normalization matters.** B2.1 live run: Hinglish WER 89% raw vs 49% normalized; Hindi 47% vs
+  32%; overall 46% vs 27%.
+- **Latency is load-sensitive.** On an idle M3: median about 1.3 s, p95 about 2.0 s. With Chrome
+  and macOS asset downloads running, the same segments took 2–3x longer.
 
 ## Commands (run from `backend/`)
 

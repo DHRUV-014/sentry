@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,9 @@ from tools.wer import Report, format_table, score
 
 
 async def run(files: list[Path], url: str, speed: float) -> None:
+    run_dir = files[0].parent / "runs"
+    run_dir.mkdir(exist_ok=True)
+    run_file = run_dir / f"{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     total = Report()
     latencies, inference = [], []
     statuses: dict[str, int] = {}
@@ -29,6 +33,9 @@ async def run(files: list[Path], url: str, speed: float) -> None:
         manifest = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
         print(f"\n### {path.name}  ({manifest['duration_s']:.1f}s, {manifest['category']})")
         _, events = await stream_file(path, url, speed)
+        with run_file.open("a", encoding="utf-8") as fh:
+            for e in events:
+                fh.write(json.dumps({"file": path.name, **e}, ensure_ascii=False) + "\n")
         utts = [e["payload"] for e in events if e["type"] == "utterance"]
         for e in events:
             if e["type"] == "utterance":
@@ -40,6 +47,7 @@ async def run(files: list[Path], url: str, speed: float) -> None:
         inference += [u["inference_ms"] for u in ok]
         total.extend(score(manifest, [(u["t_start_s"], u["t_end_s"], u["text"]) for u in ok]))
 
+    print(f"\nevents saved to {run_file}")
     print("\n=== WER/CER vs script text (synthetic TTS audio) ===")
     print(format_table(total.by_lang()))
     print(f"utterances not overlapping any script turn: {total.unmatched_utterances}")

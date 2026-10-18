@@ -35,7 +35,17 @@ class FakeSTT:
         return (ComponentStatus.OK, "fake") if self.loaded else (ComponentStatus.UNAVAILABLE, "no")
 
     async def load(self) -> None:
+        if self.mode == "slow_load":
+            await asyncio.sleep(5)
         self.loaded = self.mode != "unloadable"
+
+    async def wait_ready(self, budget_s: float) -> bool:
+        deadline = time.monotonic() + budget_s
+        while self.mode == "slow_load" and not self.loaded:
+            if time.monotonic() > deadline:
+                return False
+            await asyncio.sleep(0.01)
+        return True
 
     async def transcribe(self, pcm: np.ndarray) -> Transcript:
         if not self.loaded:
@@ -47,6 +57,8 @@ class FakeSTT:
             text=f"{len(pcm)} samples",
             lang="en",
             detected_language="en",
+            lang_confidence=0.9,
+            lang_decision="detected",
             lang_probs={"en": 0.9, "hi": 0.1},
             avg_logprob=-0.2,
             no_speech_prob=0.01,
@@ -105,6 +117,7 @@ def test_trailing_speech_is_flushed_when_audio_socket_closes(settings):
         wait_for_stt(client)
         utts, _ = stream_call(client, [SPEECH] * 40)
     assert len(utts) == 1 and utts[0]["end_reason"] == "flush"
+    assert utts[0]["stt_status"] == "ok"
 
 
 def test_stt_unavailable_is_reported_not_faked(settings):
@@ -138,3 +151,15 @@ def test_bad_frame_size_closes_audio_socket(settings):
             with pytest.raises(WebSocketDisconnect) as exc:
                 ws.receive_bytes()
         assert exc.value.code == 1003
+
+
+def test_audio_socket_refused_while_stt_still_loading(settings):
+    settings = settings.model_copy(update={"stt_ready_wait_s": 0.05})
+    with make_client(settings, FakeSTT(mode="slow_load")) as client:
+        session_id = client.post("/sessions").json()["session_id"]
+        with (
+            pytest.raises(WebSocketDisconnect) as exc,
+            client.websocket_connect(f"/ws/audio/{session_id}") as ws,
+        ):
+            ws.receive_bytes()
+    assert exc.value.code == 4503

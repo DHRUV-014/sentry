@@ -110,6 +110,7 @@ def create_app(
         app.state.storage = storage
         app.state.sessions = sessions
         app.state.stt = stt_provider
+        app.state.stt_loading = stt_task is not None
         try:
             yield
         finally:
@@ -161,6 +162,10 @@ def create_app(
             return
         if session.audio_connected:
             await websocket.close(code=4409, reason="audio already connected for this session")
+            return
+        # Don't take audio until the STT model is warm, so the first utterance isn't lost.
+        if app.state.stt_loading and not await app.state.stt.wait_ready(settings.stt_ready_wait_s):
+            await websocket.close(code=4503, reason="speech-to-text still loading, retry")
             return
         await websocket.accept()
         session.audio_connected = True

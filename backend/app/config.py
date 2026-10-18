@@ -32,10 +32,10 @@ class Settings(BaseSettings):
 
     # Voice activity detection (webrtcvad)
     vad_aggressiveness: int = Field(2, ge=0, le=3)
-    vad_start_speech_ms: int = Field(60, gt=0)
+    vad_start_speech_ms: int = Field(40, gt=0)
     vad_end_silence_ms: int = Field(600, gt=0)
     vad_max_utterance_ms: int = Field(8000, gt=0)
-    vad_preroll_ms: int = Field(200, ge=0)
+    vad_preroll_ms: int = Field(300, ge=0)
     vad_min_speech_ms: int = Field(300, ge=0)
 
     # Speech-to-text (faster-whisper, CPU)
@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     stt_repetition_penalty: float = Field(1.1, ge=1.0)
     stt_no_repeat_ngram_size: int = Field(0, ge=0)
     stt_languages: list[str] = ["hi", "en"]
+    # Use a detected language only if its probability is at least this; otherwise fall back.
+    # Hindi mode handles Hinglish better, and English mode on Hindi speech can translate.
+    stt_lang_min_confidence: float = Field(0.5, ge=0.0, le=1.0)
+    stt_lang_fallback: str = "hi"
+    # Optional decoding prompt (vocabulary hint). Empty = none. See `make bench-stt --prompt`.
+    stt_initial_prompt: str = ""
+    # /ws/audio waits up to this long for the STT model to finish warming up.
+    stt_ready_wait_s: float = Field(120, gt=0)
     stt_timeout_s: float = Field(8, gt=0)
     stt_max_backlog: int = Field(4, gt=0)
     stt_download_root: Path = Path("models/whisper")
