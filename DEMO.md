@@ -71,6 +71,10 @@ It returns:
   for about 12 institutions and the advisories. If Wi-Fi drops, `/check` serves them labelled
   "cached, fetched at <time>".
 
+The organisation box is a searchable list (English or Hindi, abbreviations like PSB, SBI, PNB,
+BoB). For anything not on it, pick **Other**: it isn't searched online, but the advice and 1930
+still show. Typed text that matches several entries ("CBI", "Punjab") asks "Did you mean …?".
+
 Try: **Bank → "HDFC Bank" → any 10-digit number → Tell an OTP + Send money → Check now**. You
 should see a MISMATCH with HDFC's official number and the source page.
 

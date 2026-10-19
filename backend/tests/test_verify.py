@@ -15,10 +15,15 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.verify.inputs import normalize_phone, normalize_upi, normalize_url
+from app.verify.institutions import default_directory
 from app.verify.tinyfish_client import TinyFishClient, TinyFishUnavailable
 from app.verify.verifier import Verifier
 
 HDFC_OFFICIAL = "18002026161"
+
+
+def inst(institution_id):
+    return default_directory().get(institution_id)
 
 
 class MemoryCache:
@@ -70,9 +75,9 @@ def result(url, title, snippet, pos=1):
 
 
 def hdfc_search(query, domains):
-    if "hdfcbank.com" in domains:
+    if "hdfc.bank.in" in domains:
         return [
-            result("https://www.hdfcbank.com/personal/need-help/contact-us", "Contact Us | HDFC Bank",
+            result("https://www.hdfc.bank.in/personal/need-help/contact-us", "Contact Us | HDFC Bank",
                    "24x7 PhoneBanking: call our toll free number 1800 202 6161 or 1860 267 6161."),
             result("https://evil.example.com/hdfc", "HDFC customer care", "helpline 9123456789"),
         ]  # fmt: skip
@@ -168,24 +173,24 @@ def test_client_without_key_is_unconfigured():
 
 async def test_institution_contact_mismatch_with_official_number_and_source():
     fake = FakeTinyFish(search=hdfc_search)
-    r = await make_verifier(fake).institution_contact("HDFC Bank", "9876543210")
+    r = await make_verifier(fake).institution_contact(inst("hdfc_bank"), "9876543210")
     assert r.verdict == "MISMATCH" and r.status == "ok"
     assert r.official_contact == "1800 202 6161"
-    assert r.sources and "hdfcbank.com" in r.sources[0].url  # never the non-official result
+    assert r.sources and "hdfc.bank.in" in r.sources[0].url  # never the non-official result
     assert "1800 202 6161" in r.note["en"] and "1800 202 6161" in r.note["hi"]
     assert "9876543210" not in fake.bodies()  # the caller's number is compared locally
 
 
 async def test_institution_contact_match():
     r = await make_verifier(FakeTinyFish(search=hdfc_search)).institution_contact(
-        "HDFC Bank", HDFC_OFFICIAL
+        inst("hdfc_bank"), HDFC_OFFICIAL
     )
     assert r.verdict == "MATCH"
 
 
 async def test_institution_contact_falls_back_to_fetch_when_snippets_have_no_number():
     def search(q, domains):
-        return [result("https://www.icicibank.com/contact-us", "Contact us", "Reach us any time")]
+        return [result("https://www.icici.bank.in/contact-us", "Contact us", "Reach us any time")]
 
     def fetch(urls):
         page = {"url": urls[0], "final_url": urls[0], "title": "Contact us",
@@ -193,7 +198,7 @@ async def test_institution_contact_falls_back_to_fetch_when_snippets_have_no_num
         return [page], []
 
     fake = FakeTinyFish(search=search, fetch=fetch)
-    r = await make_verifier(fake).institution_contact("ICICI Bank", "9876543210")
+    r = await make_verifier(fake).institution_contact(inst("icici_bank"), "9876543210")
     assert r.verdict == "MISMATCH" and r.official_contact == "1800 1080"  # short toll-free
     assert r.other_official_contacts == ["1860 120 7777"]
     assert any(req.url.host == "api.fetch.tinyfish.ai" for req in fake.requests)
@@ -209,7 +214,7 @@ async def test_general_helpline_ranks_above_product_helplines():
         ]  # fmt: skip
 
     r = await make_verifier(FakeTinyFish(search=search)).institution_contact(
-        "HDFC Bank", "18002100018"
+        inst("hdfc_bank"), "18002100018"
     )
     assert r.official_contact == "1800 202 6161"
     assert r.verdict == "MATCH"  # the home-loan line is still an official number
@@ -217,7 +222,9 @@ async def test_general_helpline_ranks_above_product_helplines():
 
 async def test_unlisted_institution_is_never_searched():
     fake = FakeTinyFish(search=hdfc_search)
-    r = await make_verifier(fake).institution_contact("Ramesh Kumar Enterprises", "9876543210")
+    r = await make_verifier(fake).institution_contact(
+        None, "9876543210", "Ramesh Kumar Enterprises"
+    )
     assert r.verdict == "UNKNOWN" and r.status == "skipped" and fake.requests == []
 
 
@@ -246,22 +253,22 @@ async def test_advisory_found_only_on_official_domains():
 async def test_cache_hit_and_stale_cache_when_offline():
     fake = FakeTinyFish(search=hdfc_search)
     v = make_verifier(fake)
-    await v.institution_contact("HDFC Bank", "9876543210")
+    await v.institution_contact(inst("hdfc_bank"), "9876543210")
     n = len(fake.requests)
-    again = await v.institution_contact("HDFC Bank", "9876543210")
+    again = await v.institution_contact(inst("hdfc_bank"), "9876543210")
     assert again.cached and len(fake.requests) == n and again.fetched_at
     # Expire the entry and take TinyFish down: the older real result is served, labelled.
     key = next(iter(v.cache.rows))
     payload, _ = v.cache.rows[key]
     v.cache.rows[key] = (payload, datetime.now(UTC) - timedelta(days=3))
     fake.fail_status = 503
-    offline = await v.institution_contact("HDFC Bank", "9876543210")
+    offline = await v.institution_contact(inst("hdfc_bank"), "9876543210")
     assert offline.cached and offline.verdict == "MISMATCH"
 
 
 async def test_unavailable_never_guesses():
     v = make_verifier(FakeTinyFish(fail_status=503))
-    r = await v.institution_contact("HDFC Bank", "9876543210")
+    r = await v.institution_contact(inst("hdfc_bank"), "9876543210")
     assert r.verdict == "UNAVAILABLE" and r.status == "unavailable" and r.official_contact is None
 
 
@@ -291,7 +298,7 @@ def test_manual_hdfc_random_number_mismatch_and_critical(verify_client):
     ).json()  # fmt: skip
     contact = next(c for c in body["checks"] if c["check"] == "institution_contact")
     assert contact["verdict"] == "MISMATCH" and contact["official_contact"] == "1800 202 6161"
-    assert contact["sources"][0]["url"].startswith("https://www.hdfcbank.com")
+    assert contact["sources"][0]["url"].startswith("https://www.hdfc.bank.in")
     assert body["level"] == "CRITICAL"
     assert body["top_reasons"][0]["code"] == "VERIFY_MISMATCH"
     assert body["next_steps"][0]["en"].startswith(
@@ -355,7 +362,7 @@ live = pytest.mark.skipif(
 @live
 async def test_live_hdfc_official_helpline():
     client = TinyFishClient(_live.tinyfish_api_key.get_secret_value())
-    r = await Verifier(client, MemoryCache()).institution_contact("HDFC Bank", "9876543210")
+    r = await Verifier(client, MemoryCache()).institution_contact(inst("hdfc_bank"), "9876543210")
     await client.close()
     assert r.status == "ok", r
     assert r.verdict == "MISMATCH" and r.official_contact and r.sources

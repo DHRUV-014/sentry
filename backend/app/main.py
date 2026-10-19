@@ -25,7 +25,13 @@ from app.events import ComponentStatus, EventBus
 from app.pipeline import CallPipeline
 from app.session import SessionManager
 from app.storage import Storage
-from app.verify.manual import ManualCheckRequest, ManualCheckResponse, run_manual_check
+from app.verify.institutions import InstitutionOut, default_directory
+from app.verify.manual import (
+    ManualCheckRequest,
+    ManualCheckResponse,
+    UnknownInstitution,
+    run_manual_check,
+)
 from app.verify.tinyfish_client import TinyFishClient, TinyFishUnavailable
 from app.verify.verifier import Verifier
 from app.voice.antispoof import UnavailableAntiSpoof
@@ -235,18 +241,26 @@ def create_app(
             },
         }
 
+    @app.get("/verify/institutions", response_model=list[InstitutionOut])
+    async def verify_institutions() -> list[InstitutionOut]:
+        """The trusted directory, for the /check dropdown (English + Hindi names)."""
+        return [InstitutionOut.of(i) for i in default_directory().institutions]
+
     @app.post("/verify/manual", response_model=ManualCheckResponse)
     async def verify_manual(req: ManualCheckRequest) -> ManualCheckResponse:
         if app.state.engine is None or app.state.extractor is None:
             raise HTTPException(status_code=503, detail="coercion engine unavailable")
         verifier: Verifier = app.state.verifier
-        result = await run_manual_check(
-            req,
-            app.state.engine,
-            app.state.extractor,
-            verifier if verifier.client.configured else None,
-            settings.verify_budget_s,
-        )
+        try:
+            result = await run_manual_check(
+                req,
+                app.state.engine,
+                app.state.extractor,
+                verifier if verifier.client.configured else None,
+                settings.verify_budget_s,
+            )
+        except UnknownInstitution as exc:
+            raise HTTPException(status_code=422, detail=f"unknown institution_id {exc}") from exc
         app.state.components.set("verify", *verifier.status())
         return result
 

@@ -73,6 +73,9 @@ verify:
     UNKNOWN:
       en: "We could not find {name}'s helpline on its official website right now."
       hi: "अभी {name} की आधिकारिक वेबसाइट पर हेल्पलाइन नंबर नहीं मिला।"
+    UNCONFIRMED:
+      en: "We couldn't confirm {name}'s official website from a government or regulator source, so we did not check it online."
+      hi: "हम किसी सरकारी या नियामक स्रोत से {name} की आधिकारिक वेबसाइट की पुष्टि नहीं कर सके, इसलिए इसकी ऑनलाइन जाँच नहीं की।"
     NOT_LISTED:
       en: "\"{name}\" is not in our list of official sources, so it was not checked online."
       hi: "\"{name}\" हमारी आधिकारिक स्रोतों की सूची में नहीं है, इसलिए इसकी ऑनलाइन जाँच नहीं की गई।"
@@ -135,3 +138,18 @@ next_steps:
   report:
     en: "Report at cybercrime.gov.in or call 1930."
     hi: "cybercrime.gov.in पर शिकायत करें या 1930 पर कॉल करें।"
+
+# /check: when the claimed organisation can't be checked online. {name} = what was chosen/typed.
+institution_notes:
+  other:
+    en: "We can only check organisations on our trusted list of official websites. To protect privacy we never search the internet for people's names or unknown organisations. You can still: hang up, find the organisation's number yourself (on its official website, your bank card or passbook) and call it back."
+    hi: "हम सिर्फ़ अपनी भरोसेमंद सूची वाली संस्थाओं की आधिकारिक वेबसाइटें जाँच सकते हैं। निजता की रक्षा के लिए हम लोगों के नाम या अनजान संस्थाओं को इंटरनेट पर कभी नहीं खोजते। फिर भी आप: फ़ोन काटें, संस्था का नंबर खुद ढूँढें (उसकी आधिकारिक वेबसाइट, अपने बैंक कार्ड या पासबुक पर) और वहाँ वापस कॉल करें।"
+  unknown:
+    en: "\"{name}\" is not on our trusted list, so it was not checked online. Choose it from the list if it's there, or pick Other."
+    hi: "\"{name}\" हमारी भरोसेमंद सूची में नहीं है, इसलिए इसकी ऑनलाइन जाँच नहीं हुई। सूची में हो तो वहाँ से चुनें, नहीं तो 'अन्य' चुनें।"
+  ask:
+    en: "Which one did you mean? Choose below and we will check it."
+    hi: "आपका मतलब किससे था? नीचे से चुनें, हम उसकी जाँच करेंगे।"
+  unconfirmed:
+    en: "We couldn't confirm {name}'s official website from a government or regulator source, so we did not check it online."
+    hi: "हम किसी सरकारी या नियामक स्रोत से {name} की आधिकारिक वेबसाइट की पुष्टि नहीं कर सके, इसलिए इसकी ऑनलाइन जाँच नहीं की।"

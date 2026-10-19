@@ -2,7 +2,7 @@ PYTHON ?= /opt/homebrew/bin/python3.11
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: setup setup-train run test lint fmt clean test-audio bench-stt stt-report coercion-report demo-wav train-coercion prewarm-verify
+.PHONY: setup setup-train run test lint fmt clean test-audio bench-stt stt-report coercion-report demo-wav train-coercion prewarm-verify check-sources
 
 setup:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
@@ -41,6 +41,10 @@ train-coercion:
 # Cache real TinyFish results for common institutions (demo works if Wi-Fi drops). Needs the key.
 prewarm-verify:
 	$(BIN)/python -m tools.prewarm_verify
+
+# Re-check sources.yaml banks against RBI's official "Banks in India" list (network).
+check-sources:
+	$(BIN)/python -m tools.check_sources
 
 demo-wav:
 	@test -n "$(FILE)" || (echo "usage: make demo-wav FILE=path/to/audio.wav" && exit 1)

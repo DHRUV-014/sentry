@@ -116,7 +116,9 @@ backend/
   app/voice/             antispoof.py (interface; model in B5)
   app/verify/            tinyfish_client.py (Search + Fetch, httpx, timeout/retry/rate limits),
                          verifier.py (institution_contact, advisory, public_reports; 24 h SQLite cache),
-                         sources.yaml (official domains, scenario queries), inputs.py, manual.py
+                         sources.yaml (trusted directory: 50 RBI-listed banks, agencies, couriers,
+                         telecoms; each domain with its confirming source), institutions.py
+                         (resolver: aliases, Hindi, typos, "Did you mean"), inputs.py, manual.py
   tools/                 stream_wav, make_test_audio, bench_stt, stt_report, wer
   training/coercion/     classifier data + training: DATA.md, generator_instructions.md, prompts/,
                          generated/ (LLM batches), data/ (dataset + STT-noised copy), train/export
@@ -136,6 +138,8 @@ samples/                 local audio (gitignored); samples/synthetic_tts/ = rend
 - `WS /ws/audio/{id}`: binary 20 ms frames, 16 kHz mono int16 (exactly 640 bytes, or whole multiples)
 - `WS /ws/events/{id}`: JSON events. Late subscribers first receive recent events again.
 - `POST /sessions/{id}/end`: drains in-flight transcriptions, then emits `status session ended`
+- `GET /verify/institutions`: the trusted directory (id, English + Hindi name, kind, aliases,
+  checkable) for the /check dropdown.
 - `POST /verify/manual`: "Check this caller" form → tactics + TinyFish checks → level, reasons,
   checks (with sources), next steps (EN/HI, always ending "Report at cybercrime.gov.in or call
   1930"). 422 on an invalid phone, UPI ID or URL.
@@ -260,6 +264,16 @@ access to it.
   `POST api.fetch.tinyfish.ai`, `X-API-Key`). It receives only a listed institution name, phone,
   UPI ID or URL: never personal names, message text, transcripts or the elder's details.
   Verification alone can never reach HIGH.
+- **Trusted directory:** only institutions in `sources.yaml` are searched, by canonical name,
+  and only on domains marked `confirmed: true` by an official source:
+  - banks: RBI "Banks in India"
+  - NPCI: RBI "Important Websites"
+  - government bodies: the gov.in / nic.in registry
+  - couriers: CBIC's courier register
+  - telecoms: TRAI
+
+  `make check-sources` re-checks the banks against RBI. Ambiguous input returns candidates
+  ("Did you mean …?") and searches nothing.
 - **/check rules:**
   - A number that MATCHES the official helpline is never searched for fraud reports.
   - A claimed identity alone stays LOW.

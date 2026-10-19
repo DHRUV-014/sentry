@@ -15,23 +15,16 @@ import asyncio
 
 from app.config import get_settings
 from app.storage import Storage
+from app.verify.institutions import default_directory
 from app.verify.tinyfish_client import TinyFishClient
 from app.verify.verifier import Verifier, load_sources
 
+# Directory ids (app/verify/sources.yaml) of the institutions most often impersonated.
 INSTITUTIONS = [
-    "State Bank of India",
-    "HDFC Bank",
-    "ICICI Bank",
-    "Axis Bank",
-    "Punjab National Bank",
-    "Bank of Baroda",
-    "Kotak Mahindra Bank",
-    "Blue Dart",
-    "India Post",
-    "Airtel",
-    "Jio",
-    "Reserve Bank of India",
-]
+    "sbi", "hdfc_bank", "icici_bank", "axis_bank", "punjab_national_bank", "bank_of_baroda",
+    "kotak_mahindra_bank", "punjab_sind_bank", "canara_bank", "union_bank_of_india",
+    "india_post", "fedex", "dtdc", "airtel", "jio", "rbi",
+]  # fmt: skip
 
 
 async def main_async(force: bool) -> int:
@@ -51,8 +44,11 @@ async def main_async(force: bool) -> int:
     verifier = Verifier(client, storage, 0 if force else s.verify_cache_ttl_s)
     failures = 0
     print(f"{'institution':24s} {'status':11s} {'official helpline':18s} {'ms':>6s}  source")
-    for name in INSTITUTIONS:
-        r = await verifier.institution_contact(name, None)
+    directory = default_directory()
+    for iid in INSTITUTIONS:
+        inst = directory.get(iid)
+        name = inst.name
+        r = await verifier.institution_contact(inst, None)
         failures += r.status != "ok" or not r.official_contact
         src = r.sources[0].url if r.sources else "-"
         tag = " (cached)" if r.cached else ""

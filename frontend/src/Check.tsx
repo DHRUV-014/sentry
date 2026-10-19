@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import InstitutionPicker, { type Institution } from "./components/InstitutionPicker";
 import type { Level } from "./lib/types";
 
 type Lang = "en" | "hi";
@@ -35,6 +36,12 @@ interface Response {
   protective_strength: number;
   caps_applied: string[];
   next_steps: Bi[];
+  institution_match: {
+    status: "resolved" | "ambiguous" | "suggest" | "unknown" | "other" | "none";
+    institution: Institution | null;
+    candidates: Institution[];
+  };
+  institution_note: Bi | null;
   verification_status: string;
   verification_capped: boolean;
 }
@@ -47,7 +54,6 @@ const T = {
   },
   who: { en: "Who did they say they are?", hi: "उन्होंने खुद को कौन बताया?" },
   name: { en: "Name of the bank / office / company", hi: "बैंक / दफ़्तर / कंपनी का नाम" },
-  namePh: { en: "e.g. HDFC Bank, CBI, Blue Dart", hi: "जैसे HDFC Bank, CBI, Blue Dart" },
   phone: { en: "Number they called from", hi: "जिस नंबर से कॉल आया" },
   upi: { en: "UPI ID they gave (optional)", hi: "उन्होंने जो यूपीआई आईडी दी (वैकल्पिक)" },
   url: { en: "Website or link they gave (optional)", hi: "उन्होंने जो वेबसाइट या लिंक दिया (वैकल्पिक)" },
@@ -227,6 +233,8 @@ export default function Check() {
   const [lang, setLang] = useState<Lang>("en");
   const [type, setType] = useState("bank");
   const [name, setName] = useState("");
+  const [institutionId, setInstitutionId] = useState<string | null>(null);
+  const [directory, setDirectory] = useState<Institution[]>([]);
   const [phone, setPhone] = useState("");
   const [upi, setUpi] = useState("");
   const [url, setUrl] = useState("");
@@ -237,8 +245,16 @@ export default function Check() {
   const [res, setRes] = useState<Response | null>(null);
   const [elapsed, setElapsed] = useState<number | null>(null);
   const t = (b: Bi) => b[lang];
+  const searchable = !["relative", "other"].includes(type);
 
-  const submit = async () => {
+  useEffect(() => {
+    fetch("/verify/institutions")
+      .then((r) => r.json())
+      .then(setDirectory)
+      .catch(() => setDirectory([]));
+  }, []);
+
+  const submit = async (pickedId: string | null = institutionId) => {
     setBusy(true);
     setError("");
     setRes(null);
@@ -249,7 +265,8 @@ export default function Check() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           claimed_identity_type: type,
-          claimed_identity_name: name,
+          claimed_identity_name: searchable && !pickedId ? name : "",
+          institution_id: searchable ? pickedId : null,
           phone: phone || null,
           upi: upi || null,
           url: url || null,
@@ -301,7 +318,10 @@ export default function Check() {
             {TYPES.map(([v, label]) => (
               <button
                 key={v}
-                onClick={() => setType(v)}
+                onClick={() => {
+                  setType(v);
+                  setInstitutionId(null);
+                }}
                 className={`rounded-2xl px-5 py-3 text-2xl ${type === v ? "bg-sky-600 font-bold" : "bg-slate-800 text-slate-300"}`}
               >
                 {t(label)}
@@ -309,10 +329,27 @@ export default function Check() {
             ))}
           </div>
         </div>
-        <label className="block">
-          <div className="mb-2 text-2xl font-semibold">{t(T.name)}</div>
-          <input className={input} value={name} placeholder={t(T.namePh)} onChange={(e) => setName(e.target.value)} />
-        </label>
+        {searchable ? (
+          <div>
+            <div className="mb-2 text-2xl font-semibold">{t(T.name)}</div>
+            <InstitutionPicker
+              items={directory}
+              type={type}
+              value={institutionId}
+              text={name}
+              onPick={setInstitutionId}
+              onText={setName}
+              t={t}
+            />
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-slate-800 p-5 text-xl text-slate-300">
+            {t({
+              en: "We never search people's names online. We'll check the number and what they asked you to do.",
+              hi: "हम लोगों के नाम कभी ऑनलाइन नहीं खोजते। हम नंबर और उनकी माँगों की जाँच करेंगे।",
+            })}
+          </div>
+        )}
         <label className="block">
           <div className="mb-2 text-2xl font-semibold">{t(T.phone)}</div>
           <input className={input} inputMode="tel" value={phone} placeholder="98765 43210" onChange={(e) => setPhone(e.target.value)} />
@@ -390,6 +427,28 @@ export default function Check() {
                   <li key={i}>• {t(r)}</li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {res.institution_note && (
+            <div className="rounded-3xl bg-amber-900/50 p-6 ring-2 ring-amber-600">
+              <p className="text-2xl">{t(res.institution_note)}</p>
+              {["ambiguous", "suggest"].includes(res.institution_match.status) && (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {res.institution_match.candidates.map((c) => (
+                    <button
+                      key={c.id}
+                      className="rounded-2xl bg-white px-5 py-3 text-2xl font-bold text-slate-900 hover:bg-sky-100"
+                      onClick={() => {
+                        setInstitutionId(c.id);
+                        void submit(c.id);
+                      }}
+                    >
+                      {t({ en: "Did you mean", hi: "क्या आपका मतलब" })} {lang === "en" ? c.name : c.name_hi}?
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

@@ -38,6 +38,7 @@ from pydantic import BaseModel
 from app.events import ComponentStatus
 from app.risk.fusion import load_reasons
 from app.verify.inputs import display_phone, phones_in_text
+from app.verify.institutions import Institution
 from app.verify.tinyfish_client import TinyFishClient, TinyFishUnavailable
 
 SOURCES_PATH = Path(__file__).with_name("sources.yaml")
@@ -100,9 +101,6 @@ class Verifier:
     def status(self) -> tuple[ComponentStatus, str]:
         return self.client.status()
 
-    def institution_listed(self, name: str | None) -> bool:
-        return bool(name) and name in self.sources["institutions"]
-
     # ---- caching around a network lookup ---------------------------------------------------
 
     async def _cached(self, key: str, lookup) -> tuple[dict | None, bool, str | None]:
@@ -121,9 +119,9 @@ class Verifier:
 
     # ---- a) institution_contact ------------------------------------------------------------
 
-    async def _official_numbers(self, name: str) -> dict:
+    async def _official_numbers(self, inst: Institution) -> dict:
         cfg = self.sources
-        domains = cfg["institutions"][name]["domains"]
+        name, domains = inst.name, list(inst.domains)
         keywords = [k.lower() for k in cfg["contact_keywords"]]
         strong = [k.lower() for k in cfg["contact_strong_keywords"]]
         product = [k.lower() for k in cfg["contact_deprioritize"]]
@@ -168,7 +166,9 @@ class Verifier:
             for p in pages:
                 if _host_in(p.final_url or p.url, domains):
                     scan(p.text, p.final_url or p.url, p.title)
-        ranked = [n for n, _ in scores.most_common()]
+        # A number seen only on product, press, tender or notice pages (score <= 0) is not a
+        # helpline: e.g. a district office phone in a press release.
+        ranked = [n for n, score in scores.most_common() if score > 0]
         sources: dict[str, Source] = {}
         for n in ranked:
             sources.setdefault(evidence[n].url, evidence[n])  # one entry per page
@@ -178,22 +178,22 @@ class Verifier:
             "fetched_at": fetched_at,
         }
 
-    async def institution_contact(self, name: str | None, given_phone: str | None) -> CheckResult:
+    async def institution_contact(
+        self, inst: Institution | None, given_phone: str | None, typed_name: str = ""
+    ) -> CheckResult:
+        """`inst` is a resolved directory entry; anything else is never searched."""
         t0 = time.perf_counter()
         texts = self.texts["contact"]
-        inp = {"institution": name or "", "phone": given_phone or ""}
-        if not self.institution_listed(name):
-            return self._result(
-                "institution_contact",
-                inp,
-                "UNKNOWN",
-                "skipped",
-                t0,
-                texts["NOT_LISTED"],
-                name=name or "?",
-            )
+        name = inst.name if inst else typed_name
+        inp = {"institution": name, "phone": given_phone or ""}
+        if inst is None:
+            return self._result("institution_contact", inp, "UNKNOWN", "skipped", t0,
+                                texts["NOT_LISTED"], name=typed_name or "?")  # fmt: skip
+        if not inst.checkable:
+            return self._result("institution_contact", inp, "UNKNOWN", "skipped", t0,
+                                texts["UNCONFIRMED"], name=inst.name)  # fmt: skip
         payload, cached, fetched_at = await self._cached(
-            f"contact:{name}", lambda: self._official_numbers(name)
+            f"contact:{inst.id}", lambda: self._official_numbers(inst)
         )
         if payload is None:
             return self._unavailable("institution_contact", inp, t0)

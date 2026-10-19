@@ -32,6 +32,7 @@ from app.risk.fusion import (
 from app.risk.levels import Level, load_weights
 from app.text.normalize import normalize
 from app.verify.inputs import normalize_phone, normalize_upi, normalize_url
+from app.verify.institutions import Institution, InstitutionOut, Resolution, default_directory
 from app.verify.verifier import CheckResult, Verifier
 
 IdentityType = Literal[
@@ -44,6 +45,8 @@ SEARCHABLE_TYPES = {"bank", "police", "government", "courier", "telecom", "compa
 class ManualCheckRequest(BaseModel):
     claimed_identity_type: IdentityType
     claimed_identity_name: str = Field("", max_length=80)
+    # From the dropdown: a directory id, or "other". Takes precedence over the typed name.
+    institution_id: str | None = Field(None, max_length=64)
     phone: str | None = Field(None, max_length=24)
     upi: str | None = Field(None, max_length=320)
     url: str | None = Field(None, max_length=2048)
@@ -83,6 +86,10 @@ class ManualCheckRequest(BaseModel):
         return n
 
 
+class UnknownInstitution(ValueError):
+    pass
+
+
 class TextAnalysis(BaseModel):
     label: dict[str, str]  # "experimental: model trained on call speech"
     mode: str  # model | lexicon_fallback
@@ -102,6 +109,9 @@ class ManualCheckResponse(BaseModel):
     protective_strength: float
     caps_applied: list[str]
     institution: str | None
+    institution_match: Resolution
+    # Shown when the claimed organisation can't be checked online (Other / unknown / ambiguous).
+    institution_note: dict[str, str] | None
     checks: list[CheckResult]
     text_analysis: TextAnalysis | None
     next_steps: list[dict[str, str]]
@@ -154,14 +164,43 @@ async def run_manual_check(
     texts = load_reasons()
     cfg = FusionConfig.load()
 
-    # Resolve the claimed institution to a canonical, listed name (never a personal name).
-    institution: str | None = None
-    claims: list[Entity] = []
-    if req.claimed_identity_type in SEARCHABLE_TYPES and req.claimed_identity_name.strip():
-        found = [e for e in extractor.extract(req.claimed_identity_name) if e.kind == "institution"]
-        if found:
-            institution = found[0].value
-            claims.append(found[0])
+    # Resolve the claimed organisation to a trusted-directory entry. Only a resolved entry is ever
+    # searched, by its canonical name; the typed text never leaves the server.
+    directory = default_directory()
+    typed = req.claimed_identity_name.strip()
+    inst: Institution | None = None
+    if req.institution_id == "other" or req.claimed_identity_type not in SEARCHABLE_TYPES:
+        resolution = Resolution(status="other")
+    elif req.institution_id:
+        inst = directory.get(req.institution_id)
+        if inst is None:
+            raise UnknownInstitution(req.institution_id)
+        resolution = Resolution(status="resolved", institution=InstitutionOut.of(inst))
+    elif typed:
+        resolution = directory.resolve(typed, req.claimed_identity_type)
+        if resolution.status == "resolved":
+            inst = directory.get(resolution.institution.id)
+    else:
+        resolution = Resolution(status="none")
+    institution = inst.name if inst else None
+    claims = (
+        [Entity(kind="institution", value=inst.name, raw=inst.name, detail=inst.kind)]
+        if inst
+        else []
+    )
+    note_key = {"other": "other", "unknown": "unknown", "ambiguous": "ask", "suggest": "ask"}.get(
+        resolution.status
+    )
+    if inst is not None and not inst.checkable:
+        note_key = "unconfirmed"
+    institution_note = (
+        {
+            k: v.format(name=inst.name if inst else typed)
+            for k, v in texts["institution_notes"][note_key].items()
+        }
+        if note_key
+        else None
+    )
 
     # Verification (bounded). The phone's public-report search waits for the contact check: a
     # number that matches the institution's official helpline is not searched for "fraud"
@@ -171,12 +210,8 @@ async def run_manual_check(
 
         async def contact_then_reports() -> list[CheckResult]:
             out: list[CheckResult] = []
-            if req.claimed_identity_type in SEARCHABLE_TYPES and req.claimed_identity_name.strip():
-                out.append(
-                    await verifier.institution_contact(
-                        institution or req.claimed_identity_name, req.phone
-                    )
-                )
+            if inst is not None or resolution.status == "unknown":
+                out.append(await verifier.institution_contact(inst, req.phone, typed))
             matched = any(c.verdict == "MATCH" for c in out)
             if req.phone and not matched:
                 out.append(await verifier.public_reports("phone", req.phone))
@@ -243,7 +278,7 @@ async def run_manual_check(
 
     reasons = list(risk.top_reasons)
     vt = texts["verify"]
-    name = institution or req.claimed_identity_name
+    name = institution or typed
     if mismatch is not None:
         reasons.insert(0, Reason(code="VERIFY_MISMATCH", weight=1.0,
                                  **{k: v.format(name=name) for k, v in vt["reason_mismatch"].items()}))  # fmt: skip
@@ -261,7 +296,7 @@ async def run_manual_check(
     ns = texts["next_steps"]
     steps: list[dict[str, str]] = []
     if mismatch is not None and mismatch.official_contact:
-        name = institution or req.claimed_identity_name
+        name = institution or typed
         steps.append({k: v.format(name=name, official=mismatch.official_contact)
                       for k, v in ns["mismatch"].items()})  # fmt: skip
     asked = set(req.asked_to)
@@ -300,6 +335,8 @@ async def run_manual_check(
         caps_applied=caps,
         verification_capped=capped,
         institution=institution,
+        institution_match=resolution,
+        institution_note=institution_note,
         checks=checks,
         text_analysis=text_analysis,
         next_steps=steps,
