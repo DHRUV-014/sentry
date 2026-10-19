@@ -94,6 +94,8 @@ class SequenceTracker:
     cfg: CoercionConfig
     # tactic -> utterance_id -> strongest hit score in that utterance
     _per_utt: dict[str, dict[str, float]] = field(default_factory=dict)
+    # tactic -> source (lexicon | model | llm) -> utterance_id -> strongest hit from that source
+    _per_src: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
     _first_seen: dict[str, ChainStep] = field(default_factory=dict)
     _protective: dict[str, float] = field(default_factory=dict)
 
@@ -110,6 +112,8 @@ class SequenceTracker:
                 continue
             per = self._per_utt.setdefault(hit.category, {})
             per[utterance_id] = max(per.get(utterance_id, 0.0), hit.score)
+            src = self._per_src.setdefault(hit.category, {}).setdefault(hit.source, {})
+            src[utterance_id] = max(src.get(utterance_id, 0.0), hit.score)
             if hit.category not in self._first_seen:
                 self._first_seen[hit.category] = ChainStep(
                     tactic=hit.category,
@@ -154,15 +158,26 @@ class SequenceTracker:
         if not critical_ok and score >= cfg.critical:
             score, caps = cfg.critical - cfg.cap_margin, [*caps, "critical_gate"]
 
-        contributions = [
-            Contribution(
-                signal=f"coercion.{t}",
-                value=round(s, 4),
-                weight=cfg.tactic_weights[t],
-                evidence_utterance_id=max(self._per_utt[t], key=self._per_utt[t].get),
+        contributions = []
+        for t, s in sorted(strengths.items(), key=lambda kv: -cfg.tactic_weights[kv[0]] * kv[1]):
+            contributions.append(
+                Contribution(
+                    signal=f"coercion.{t}",
+                    value=round(s, 4),
+                    weight=cfg.tactic_weights[t],
+                    evidence_utterance_id=max(self._per_utt[t], key=self._per_utt[t].get),
+                )
             )
-            for t, s in sorted(strengths.items(), key=lambda kv: -cfg.tactic_weights[kv[0]] * kv[1])
-        ]
+            # Which evidence source (lexicon, model, llm) backs the tactic, and how strongly.
+            for source, per in sorted(self._per_src[t].items()):
+                contributions.append(
+                    Contribution(
+                        signal=f"coercion.{t}.{source}",
+                        value=round(_noisy_or(list(per.values())), 4),
+                        weight=cfg.tactic_weights[t],
+                        evidence_utterance_id=max(per, key=per.get),
+                    )
+                )
         contributions.append(
             Contribution(signal="coercion.chain_factor", value=round(factor, 4), weight=1.0)
         )

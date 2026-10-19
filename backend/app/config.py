@@ -66,11 +66,22 @@ class Settings(BaseSettings):
     stt_logprob_threshold: float = -1.0
     stt_load_on_startup: bool = True
 
+    # Trained coercion-tactic classifier (ONNX int8, built by `make train-coercion`).
+    coercion_model_enabled: bool = True
+    coercion_model_dir: Path = Path("models/coercion")
+    coercion_model_threads: int = Field(1, gt=0)
+    coercion_model_timeout_s: float = Field(1.0, gt=0)
+
     llm_enabled: bool = False
 
     @property
     def resolved_db_path(self) -> Path:
         return self.db_path if self.db_path.is_absolute() else BACKEND_DIR / self.db_path
+
+    @property
+    def resolved_coercion_model_dir(self) -> Path:
+        d = self.coercion_model_dir
+        return d if d.is_absolute() else BACKEND_DIR / d
 
     @property
     def resolved_stt_download_root(self) -> Path:

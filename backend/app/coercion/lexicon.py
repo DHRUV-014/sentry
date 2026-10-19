@@ -71,6 +71,7 @@ class Hit:
     last_token: int
     span: str  # original text, for display
     negated: bool = False
+    source: str = "lexicon"  # lexicon | model | llm
 
     @property
     def score(self) -> float:

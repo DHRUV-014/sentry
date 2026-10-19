@@ -21,6 +21,8 @@ dependencies = [
     "aiosqlite>=0.20",
     "PyYAML>=6.0",
     "indic-transliteration==2.3.82",
+    "onnxruntime>=1.17",
+    "tokenizers>=0.15",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +30,11 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
+]
+train = [
+    "torch>=2.4",
+    "transformers>=4.44",
+    "onnx>=1.16",
 ]
 
 [tool.setuptools.packages.find]

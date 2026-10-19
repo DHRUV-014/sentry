@@ -14,11 +14,13 @@ from app.audio.buffer import FRAME_BYTES
 from app.audio.stt import FasterWhisperProvider, STTProvider
 from app.audio.vad import VadConfig, VadSegmenter, WebRtcVad
 from app.coercion.engine import CoercionEngine
+from app.coercion.model_tagger import ModelTagger, ModelUnavailable, TacticModel
 from app.components import ComponentRegistry
 from app.config import Settings, get_settings
 from app.entities.extract import EntityExtractor
 from app.events import ComponentStatus, EventBus
 from app.pipeline import CallPipeline
+from app.risk.levels import load_weights
 from app.session import SessionManager
 from app.storage import Storage
 from app.verify.verifier import UnavailableVerifier
@@ -37,6 +39,29 @@ def _init_component_status(settings: Settings, components: ComponentRegistry) ->
     components.set("voice", *UnavailableAntiSpoof().status())
     components.set("verify", *UnavailableVerifier().status())
     components.set("alerts", ComponentStatus.UNAVAILABLE, "alert dispatcher not implemented yet")
+
+
+def _load_coercion_model(settings: Settings, components: ComponentRegistry) -> ModelTagger | None:
+    """Load and warm up the trained tactic classifier; report why when it can't run."""
+    if not settings.coercion_model_enabled:
+        components.set("classifier", ComponentStatus.DISABLED, "COERCION_MODEL_ENABLED=false")
+        return None
+    try:
+        model = TacticModel.load(
+            settings.resolved_coercion_model_dir, settings.coercion_model_threads
+        )
+        tagger = ModelTagger(model, weight=float(load_weights()["model_tagger"]["weight"]))
+        tagger.hits("warm up")  # the first ONNX run allocates; keep it off the first call
+        components.set("classifier", ComponentStatus.OK, tagger.describe())
+        return tagger
+    except ModelUnavailable as exc:
+        components.set(
+            "classifier", ComponentStatus.UNAVAILABLE, f"{exc}; run `make train-coercion`"
+        )
+    except Exception as exc:
+        log.exception("coercion classifier failed to load")
+        components.set("classifier", ComponentStatus.UNAVAILABLE, f"load failed: {exc}")
+    return None
 
 
 def create_app(
@@ -93,10 +118,14 @@ def create_app(
 
         vad_config = VadConfig.from_settings(settings)
 
+        components.set("classifier", ComponentStatus.LOADING, "loading tactic classifier")
+        model_tagger = await asyncio.to_thread(_load_coercion_model, settings, components)
         engine: CoercionEngine | None = None
         extractor: EntityExtractor | None = None
         try:
-            engine = CoercionEngine.load()
+            engine = CoercionEngine.load(
+                model=model_tagger, model_timeout_s=settings.coercion_model_timeout_s
+            )
             extractor = EntityExtractor.load(engine.lexicon.cfg)
             components.set("lexicon", ComponentStatus.OK, engine.describe())
         except Exception as exc:
@@ -128,6 +157,8 @@ def create_app(
             yield
         finally:
             await sessions.stop()
+            if model_tagger is not None:
+                model_tagger.close()
             if stt_task is not None:
                 stt_task.cancel()
             close = getattr(stt_provider, "close", None)

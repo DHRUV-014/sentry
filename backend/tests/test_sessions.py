@@ -1,6 +1,8 @@
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
+from app.components import COMPONENTS
+
 
 def test_session_lifecycle_streams_status_events(client):
     session_id = client.post("/sessions").json()["session_id"]
@@ -11,8 +13,8 @@ def test_session_lifecycle_streams_status_events(client):
         assert first["payload"] == {"component": "session", "status": "started", "detail": ""}
         assert first["seq"] == 1
 
-        components = {ws.receive_json()["payload"]["component"] for _ in range(8)}
-        assert {"stt", "vad", "lexicon", "alerts"} <= components
+        components = {ws.receive_json()["payload"]["component"] for _ in COMPONENTS}
+        assert set(COMPONENTS) == components
 
         assert client.post(f"/sessions/{session_id}/end").json()["ended"] is True
         last = ws.receive_json()

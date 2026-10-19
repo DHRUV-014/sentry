@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from app.events import ComponentStatus
 
-COMPONENTS = ("stt", "vad", "lexicon", "llm", "voice", "verify", "alerts", "storage")
+COMPONENTS = ("stt", "vad", "lexicon", "classifier", "llm", "voice", "verify", "alerts", "storage")
 
 # Components whose failure means the core pipeline can't produce a risk score.
 CORE_COMPONENTS = ("stt", "vad", "lexicon", "storage")

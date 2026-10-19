@@ -2,13 +2,17 @@ PYTHON ?= /opt/homebrew/bin/python3.11
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: setup run test lint fmt clean test-audio bench-stt stt-report coercion-report demo-wav
+.PHONY: setup setup-train run test lint fmt clean test-audio bench-stt stt-report coercion-report demo-wav train-coercion
 
 setup:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(BIN)/pip install --upgrade pip
 	$(BIN)/pip install -e ".[dev]"
 	test -f .env || cp .env.example .env
+
+# Training-only dependencies (torch, transformers, onnx). The app itself only needs onnxruntime.
+setup-train:
+	$(BIN)/pip install -e ".[dev,train]"
 
 run:
 	$(BIN)/python -m app
@@ -29,6 +33,10 @@ stt-report:
 # Coercion trajectories for the fixtures and the latest live STT run.
 coercion-report:
 	$(BIN)/python -m tools.coercion_report -v
+
+# Rebuild models/coercion/ from training/coercion/generated (see training/coercion/DATA.md).
+train-coercion:
+	PY=$(BIN)/python training/coercion/rebuild.sh
 
 demo-wav:
 	@test -n "$(FILE)" || (echo "usage: make demo-wav FILE=path/to/audio.wav" && exit 1)

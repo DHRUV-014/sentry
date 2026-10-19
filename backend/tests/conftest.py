@@ -12,6 +12,7 @@ def settings(tmp_path) -> Settings:
         _env_file=None,
         db_path=tmp_path / "test.db",
         stt_load_on_startup=False,  # never download/load Whisper in unit tests
+        coercion_model_enabled=False,  # unit tests never depend on a locally trained model
     )
 
 

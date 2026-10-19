@@ -5,7 +5,9 @@ Sources:
   --live       the latest live STT run (samples/synthetic_tts/runs/*.jsonl): the real Whisper
                output of the synthetic calls, i.e. text with actual STT errors
 
-Usage: python -m tools.coercion_report [--fixtures] [--live] [-v]
+  --model      also run the trained tactic classifier (models/coercion/) next to the lexicon
+
+Usage: python -m tools.coercion_report [--fixtures] [--live] [--model] [-v]
 """
 
 from __future__ import annotations
@@ -19,8 +21,9 @@ import yaml
 
 from app.analysis import CallAnalyzer
 from app.coercion.engine import CoercionEngine
+from app.coercion.model_tagger import ModelTagger, TacticModel
 from app.entities.extract import EntityExtractor
-from app.risk.levels import Level
+from app.risk.levels import Level, load_weights
 from tools.make_test_audio import DEFAULT_OUT
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -91,7 +94,10 @@ def print_result(r: dict, verbose: bool) -> None:
         for c in r["trajectory"]:
             for h in c.hits:
                 neg = " NEG" if h.negated else ""
-                print(f'      {c.utterance_id:4s} {h.tactic:10s} {h.score:.2f}{neg}  "{h.span}"')
+                src = "" if h.source == "lexicon" else f" [{h.source}]"
+                print(
+                    f'      {c.utterance_id:4s} {h.tactic:10s} {h.score:.2f}{neg}{src}  "{h.span[:90]}"'
+                )
         if f.caps_applied:
             print(f"      caps: {f.caps_applied}")
         if r["claims"]:
@@ -99,7 +105,12 @@ def print_result(r: dict, verbose: bool) -> None:
 
 
 async def main_async(args) -> int:
-    engine = CoercionEngine.load()
+    model = None
+    if args.model:
+        weight = float(load_weights()["model_tagger"]["weight"])
+        model = ModelTagger(TacticModel.load(), weight)
+        print(f"classifier: {model.describe()}")
+    engine = CoercionEngine.load(model=model)
     extractor = EntityExtractor.load(engine.lexicon.cfg)
     sources = []
     if args.fixtures:
@@ -125,6 +136,7 @@ def main() -> None:
     )
     parser.add_argument("--fixtures", action="store_true")
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--model", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     if not (args.fixtures or args.live):

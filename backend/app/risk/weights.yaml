@@ -61,3 +61,8 @@ matching:
   optional_tokens: ["ke", "ko", "se", "ka", "ki", "ne", "the", "a", "an", "to", "of", "on", "in", "me", "mein", "hai", "ho", "bhi", "is"]
   # A match's confidence is (ratio - min_ratio) scaled into [floor, 1.0].
   confidence_floor: 0.75
+
+model_tagger:
+  # A trained-classifier detection becomes a hit with score = weight x probability, combined with
+  # lexicon hits per tactic (max per utterance). Lexicon pattern weights are in the same range.
+  weight: 0.8

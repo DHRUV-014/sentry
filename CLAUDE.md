@@ -47,7 +47,7 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
 | B2 | Audio ingest + VAD + STT, `tools/stream_wav.py`, STT benchmark | ✅ done |
 | B2.1 | Never translate, Hindi fallback, warm-up gate, shared text normalization, prompt experiment | ✅ done |
 | B3 | Coercion engine (lexicon + sequence) + entity extraction | ✅ done |
-| B3.5 | Train our coercion classifier | next |
+| B3.5 | Train our coercion classifier | in progress |
 | B4 | Risk fusion + alert dispatcher with the **dashboard** alert channel | |
 | F1 | WebRTC call `/caller` ↔ `/elder` streaming to the backend | |
 | F2 | `/elder` live risk banner + full-screen warning (English + Hindi) | |
@@ -107,13 +107,17 @@ backend/
   app/audio/             buffer.py (ring buffer), vad.py (segmenter), stt.py (providers)
   app/text/              normalize.py + variants.yaml (shared normalizer)
   app/analysis.py        Per-call analyzer: coercion + entities on each utterance
-  app/coercion/          lexicon.yaml, lexicon.py (fuzzy matcher), sequence.py (chain + caps), engine.py
+  app/coercion/          lexicon.yaml, lexicon.py (fuzzy matcher), sequence.py (chain + caps), engine.py,
+                         model_tagger.py (trained tactic classifier, ONNX int8)
   app/entities/          extract.py, institutions.yaml (gazetteer + UPI handles)
   app/risk/              weights.yaml (levels, coercion scoring, matching), levels.py; fusion.py (B4)
   app/alerts/            dispatcher.py, channels (dashboard; sms/whatsapp in B9) (B4)
   app/voice/             antispoof.py (interface; model in B5)
   app/verify/            verifier.py  (interface; TinyFish in B6)
   tools/                 stream_wav, make_test_audio, bench_stt, stt_report, wer
+  training/coercion/     classifier data + training: DATA.md, generator_instructions.md, prompts/,
+                         generated/ (LLM batches), data/ (dataset + STT-noised copy), train/export
+  models/coercion/       built classifier (git-ignored): model.onnx, tokenizer.json, model.json
   tests/                 unit + pipeline tests; tests/audio_scripts/ = synthetic call scripts
 samples/                 local audio (gitignored); samples/synthetic_tts/ = rendered TTS calls
 ```
@@ -124,7 +128,7 @@ samples/                 local audio (gitignored); samples/synthetic_tts/ = rend
 - `WS /ws/audio/{id}`: binary 20 ms frames, 16 kHz mono int16 (exactly 640 bytes, or whole multiples)
 - `WS /ws/events/{id}`: JSON events. Late subscribers first receive recent events again.
 - `POST /sessions/{id}/end`: drains in-flight transcriptions, then emits `status session ended`
-- `GET /health`: `stt, vad, lexicon, llm, voice, verify, alerts, storage`
+- `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, storage`
 
 ## Events
 
@@ -145,7 +149,9 @@ Every event uses the envelope `{v, type, session_id, seq, ts, payload}`.
   - Call-level fields: `score`, `raw_score`, `level`, `tactic_strengths`, `stages_reached`,
     `chain[]` (`{tactic, stage, utterance_id, t_s}`), `ordered`, `protective_strength`,
     `caps_applied`, `contributions[]` (`{signal, value, weight, evidence_utterance_id}`),
-    `llm_status`.
+    `model_status`, `llm_status` (`disabled | ok | timeout | error`).
+  - Hit `source` is `lexicon | model | llm`. Contributions have `coercion.<TACTIC>` (combined) plus
+    `coercion.<TACTIC>.<source>` per evidence source.
 - **`entities`** (when an utterance contains any):
   - `entities[]`: `{kind: phone|upi|url|case_id|institution, value, raw, detail}`
   - `claims_so_far[]`: every distinct claim in the call so far.
@@ -189,7 +195,18 @@ make bench-stt             # benchmark tiny/base/small on this machine
 make stt-report            # live: stream all synthetic WAVs through the running server, WER + latency
 make coercion-report       # coercion trajectories: fixtures + latest live STT run
 make demo-wav FILE=...     # stream any audio file in real time and print events
+make setup-train           # + torch/transformers/onnx (training only; the app needs onnxruntime)
+make train-coercion        # rebuild models/coercion/ from training/coercion/generated
 ```
+
+## Held-out data: deny-list (read this first)
+
+`eval/human/` (team-written held-out test sets) is **off-limits**. Do not open, read, list,
+grep, glob, summarize or copy anything in it, and don't let subagents do so either, until the user
+explicitly says **"training frozen"** in the current session. It's the only clean measure of the
+coercion classifier and lexicon. Searches across the repo must exclude it (for example
+`grep --exclude-dir=human`, `rg -g '!eval/human'`). `.claude/settings.json` also denies tool
+access to it.
 
 ## Working rules for agents
 
