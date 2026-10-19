@@ -360,3 +360,91 @@ async def test_live_hdfc_official_helpline():
     assert r.status == "ok", r
     assert r.verdict == "MISMATCH" and r.official_contact and r.sources
     assert r.latency_ms < 10000
+
+
+# ---- regressions: official number must not look risky (training-side cases only) ---------------
+
+SBI_OFFICIAL = "1800 112211"
+
+
+def sbi_search(query, domains):
+    if "sbi.bank.in" in domains:
+        return [result("https://sbi.bank.in/web/customer-care/contact-centre", "Contact Centre",
+                       "SBI contact centre: customer care toll free 1800 1122 11 / 1800 425 3800")]  # fmt: skip
+    if "112211" in query:
+        # A news page publishing the OFFICIAL helpline next to fraud warnings: not a report.
+        return [result("https://news.example.in/sbi-customer-care-number",
+                       "SBI customer care number: beware of fraud",
+                       "SBI customer care number 1800112211. Beware of scam calls claiming to be SBI.")]  # fmt: skip
+    return []
+
+
+@pytest.fixture
+def sbi_client(tmp_path):
+    fake = FakeTinyFish(search=sbi_search)
+    settings = Settings(
+        _env_file=None,
+        db_path=tmp_path / "s.db",
+        stt_load_on_startup=False,
+        coercion_model_enabled=False,
+        tinyfish_api_key="test-key",
+    )
+    with TestClient(create_app(settings, tinyfish_transport=httpx.MockTransport(fake))) as c:
+        yield c, fake
+
+
+def check(client, **body):
+    r = client.post("/verify/manual", json={"claimed_identity_type": "bank", **body})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_official_number_nothing_ticked_is_low(sbi_client):
+    client, fake = sbi_client
+    body = check(client, claimed_identity_name="SBI", phone=SBI_OFFICIAL)
+    contact = next(c for c in body["checks"] if c["check"] == "institution_contact")
+    assert contact["verdict"] == "MATCH"
+    assert "matches" in contact["note"]["en"] and "fake caller ID" in contact["note"]["en"]
+    assert body["level"] == "LOW", body["contributions"]
+    # The matching official number was never searched for fraud reports.
+    assert not any(c["check"] == "public_reports" for c in body["checks"])
+    assert not any("112211" in parse_qs(urlsplit(str(r.url)).query).get("query", [""])[0]
+                   for r in fake.requests)  # fmt: skip
+    assert any("call 1800 112211 yourself" in s["en"] for s in body["next_steps"])
+
+
+def test_official_number_and_visit_branch_message_is_low(sbi_client):
+    client, _ = sbi_client
+    body = check(
+        client,
+        claimed_identity_name="SBI",
+        phone=SBI_OFFICIAL,
+        message_text="told me to visit sbi branch",
+    )
+    assert body["level"] == "LOW"
+    assert body["protective_strength"] > 0
+    assert body["text_analysis"]["protective"]
+    assert any(r["code"] == "PROTECTIVE" for r in body["top_reasons"])
+
+
+def test_claimed_identity_alone_stays_low(sbi_client):
+    client, _ = sbi_client
+    for identity, name in (("bank", "SBI"), ("police", "CBI")):
+        body = check(client, claimed_identity_type=identity, claimed_identity_name=name)
+        assert body["level"] == "LOW", (identity, body["coercion_score"])
+
+
+def test_unknown_number_otp_and_secrecy_is_high(sbi_client):
+    client, _ = sbi_client
+    body = check(
+        client, claimed_identity_name="SBI", phone="9876543210", asked_to=["otp", "secrecy"]
+    )
+    assert body["level"] in ("HIGH", "CRITICAL"), body["contributions"]
+    assert any(c["verdict"] == "MISMATCH" for c in body["checks"])
+
+
+def test_breakdown_fields_always_present(sbi_client):
+    client, _ = sbi_client
+    body = check(client, claimed_identity_name="SBI", phone=SBI_OFFICIAL)
+    assert {"contributions", "coercion_score", "protective_strength", "caps_applied"} <= set(body)
+    assert any(c["signal"] == "risk.coercion" for c in body["contributions"])

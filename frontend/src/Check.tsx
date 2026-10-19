@@ -29,7 +29,11 @@ interface Response {
   tactics: string[];
   top_reasons: (Bi & { code: string })[];
   checks: CheckResult[];
-  text_analysis: { label: Bi; mode: string; tactics: string[] } | null;
+  text_analysis: { label: Bi; mode: string; tactics: string[]; protective: string[] } | null;
+  contributions: { signal: string; value: number; weight: number }[];
+  coercion_score: number;
+  protective_strength: number;
+  caps_applied: string[];
   next_steps: Bi[];
   verification_status: string;
   verification_capped: boolean;
@@ -120,6 +124,102 @@ const LEVEL_TEXT: Record<Level, Bi> = {
   HIGH: { en: "Likely a scam", hi: "शायद धोखाधड़ी" },
   CRITICAL: { en: "Scam: stop now", hi: "धोखाधड़ी: अभी रुकें" },
 };
+
+const TACTIC_LABEL: Record<string, Bi> = {
+  AUTHORITY: { en: "Claimed authority", hi: "अधिकारी होने का दावा" },
+  THREAT: { en: "Threats", hi: "धमकी" },
+  URGENCY: { en: "Rushing you", hi: "जल्दबाज़ी का दबाव" },
+  SECRECY: { en: "Secrecy", hi: "बात छिपाने को कहना" },
+  ISOLATION: { en: "Keeping you alone", hi: "अकेला रखना" },
+  PAYMENT: { en: "Money demand", hi: "पैसे की माँग" },
+  CREDENTIAL: { en: "OTP / PIN demand", hi: "ओटीपी / पिन की माँग" },
+};
+const SOURCE_LABEL: Record<string, Bi> = {
+  form: { en: "you reported it", hi: "आपने बताया" },
+  model: { en: "found in the message", hi: "संदेश में मिला" },
+  lexicon: { en: "found in the message", hi: "संदेश में मिला" },
+};
+const CAP_LABEL: Record<string, Bi> = {
+  identity_only: {
+    en: "Capped at LOW: a claimed identity alone is not a warning sign",
+    hi: "LOW तक सीमित: सिर्फ़ पहचान का दावा खतरे का संकेत नहीं है",
+  },
+  verification_alone: {
+    en: "Capped below HIGH: online checks alone can't make it HIGH",
+    hi: "HIGH से नीचे सीमित: सिर्फ़ ऑनलाइन जाँच से HIGH नहीं होता",
+  },
+  single_tactic_or_utterance: {
+    en: "Capped below HIGH: only one warning sign so far",
+    hi: "HIGH से नीचे सीमित: अभी तक सिर्फ़ एक खतरे का संकेत",
+  },
+  critical_gate: {
+    en: "Capped below CRITICAL: no money/OTP demand together with threats or secrecy",
+    hi: "CRITICAL से नीचे सीमित: धमकी या गोपनीयता के साथ पैसे/ओटीपी की माँग नहीं",
+  },
+};
+const VERIFY_LABEL: Record<string, Bi> = {
+  MISMATCH: { en: "Number not on the official website", hi: "नंबर आधिकारिक वेबसाइट पर नहीं" },
+  REPORTS_FOUND: { en: "Fraud reports found online", hi: "इंटरनेट पर धोखाधड़ी की शिकायतें मिलीं" },
+};
+
+function Breakdown({ res, t }: { res: Response; t: (b: Bi) => string }) {
+  const rows: { label: string; effect: string; tone: string }[] = [];
+  for (const c of res.contributions) {
+    const parts = c.signal.split(".");
+    if (parts[0] === "coercion" && parts.length === 3 && TACTIC_LABEL[parts[1]]) {
+      const src = SOURCE_LABEL[parts[2]] ? ` (${t(SOURCE_LABEL[parts[2]])})` : "";
+      rows.push({ label: `${t(TACTIC_LABEL[parts[1]])}${src}`, effect: `+${(c.value * c.weight).toFixed(2)}`, tone: "text-red-300" });
+    } else if (c.signal === "coercion.chain_factor") {
+      rows.push({
+        label: t({ en: "Scam-pattern stages reached (multiplier)", hi: "धोखाधड़ी के तरीके के चरण (गुणक)" }),
+        effect: `× ${c.value.toFixed(2)}`,
+        tone: "text-slate-300",
+      });
+    } else if (c.signal === "coercion.protective") {
+      rows.push({
+        label: t({ en: "Genuine advice heard (lowers risk)", hi: "असली सलाह सुनी गई (खतरा कम)" }),
+        effect: `${(c.value * 100).toFixed(0)}%`,
+        tone: "text-emerald-300",
+      });
+    } else if (parts[0] === "verify") {
+      rows.push({ label: t(VERIFY_LABEL[parts[1]] ?? { en: parts[1], hi: parts[1] }), effect: `+${c.weight.toFixed(2)}`, tone: "text-orange-300" });
+    }
+  }
+  return (
+    <div className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
+      <div className="mb-3 text-2xl text-slate-300">{t({ en: "Why this level", hi: "यह स्तर क्यों" })}</div>
+      <table className="w-full text-xl">
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td className="py-1 text-slate-400">{t({ en: "No warning signs reported", hi: "कोई खतरे का संकेत नहीं बताया गया" })}</td>
+            </tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-slate-800">
+              <td className="py-2">{r.label}</td>
+              <td className={`py-2 text-right font-mono ${r.tone}`}>{r.effect}</td>
+            </tr>
+          ))}
+          <tr>
+            <td className="pt-3 text-slate-400">{t({ en: "Warning-sign score", hi: "खतरे के संकेतों का स्कोर" })}</td>
+            <td className="pt-3 text-right font-mono">{res.coercion_score.toFixed(2)}</td>
+          </tr>
+          <tr>
+            <td className="text-slate-300">{t({ en: "Final score (with online checks)", hi: "अंतिम स्कोर (ऑनलाइन जाँच सहित)" })}</td>
+            <td className="text-right font-mono font-bold">{res.score.toFixed(2)} → {res.level}</td>
+          </tr>
+        </tbody>
+      </table>
+      {res.caps_applied.map((c) => (
+        <div key={c} className="mt-2 text-lg text-amber-300">
+          • {t(CAP_LABEL[c] ?? { en: c, hi: c })}
+        </div>
+      ))}
+      <div className="mt-2 text-base text-slate-500">LOW &lt; 0.30 ≤ MEDIUM &lt; 0.55 ≤ HIGH &lt; 0.80 ≤ CRITICAL</div>
+    </div>
+  );
+}
 
 const input = "w-full rounded-2xl bg-slate-800 px-5 py-4 text-2xl text-white ring-2 ring-slate-600 focus:ring-sky-400 focus:outline-none";
 
@@ -293,6 +393,8 @@ export default function Check() {
             </div>
           )}
 
+          <Breakdown res={res} t={t} />
+
           {res.checks.map((c, i) => (
             <div key={i} className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -343,6 +445,11 @@ export default function Check() {
               <div className="mt-2 text-2xl">
                 {res.text_analysis.tactics.length ? res.text_analysis.tactics.join(" · ") : "—"}
               </div>
+              {res.text_analysis.protective.length > 0 && (
+                <div className="mt-2 text-xl text-emerald-300">
+                  {t({ en: "Genuine advice found:", hi: "असली सलाह मिली:" })} “{res.text_analysis.protective.join("”, “")}”
+                </div>
+              )}
             </div>
           )}
         </section>

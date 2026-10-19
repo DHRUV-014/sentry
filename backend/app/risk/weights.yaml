@@ -93,6 +93,9 @@ manual_check:
   # Each thing the person reports the caller asked for counts as one piece of evidence with this
   # weight (like one utterance carrying that tactic).
   form_weight: 0.8
+  # Tactics found in a pasted message (classifier trained on speech, not text) count at this
+  # fraction of their normal weight. Protective cues count in full.
+  message_weight: 0.5
   asked_to:
     otp: CREDENTIAL
     money: PAYMENT

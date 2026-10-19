@@ -316,6 +316,13 @@ protective:
   - {p: "number printed on the back of your card", w: 0.7}
   - {p: "official website", w: 0.3}
   - {p: "visit your branch", w: 0.5}
+  - {p: "visit the branch", w: 0.5}
+  - {p: "visit branch", w: 0.5}
+  - {p: "go to your branch", w: 0.5}
+  - {p: "call the number on your card", w: 0.7}
+  - {p: "number on the back of your card", w: 0.7}
+  - {p: "do not share your otp", w: 0.6}
+  - {p: "do not share otp", w: 0.6}
   - {p: "branch aa jaiye", w: 0.4}
   - {p: "with your son", w: 0.4}
   - {p: "beta ko bhi saath le aaiye", w: 0.5}

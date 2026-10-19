@@ -159,3 +159,9 @@ def test_real_model_latency_under_budget():
         model.probs(t)
         lat.append((time.perf_counter() - t0) * 1000)
     assert statistics.median(lat) < 150 and max(lat) < 300, lat
+
+
+async def test_protective_cues_count_in_model_mode():
+    r = await engine_with({}).new_call().process("u1", 0.0, "Please visit your branch tomorrow.")
+    assert r.mode == "model" and r.protective_strength > 0
+    assert any(h.tactic == "PROTECTIVE" and h.counted for h in r.hits)

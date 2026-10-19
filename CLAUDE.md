@@ -165,7 +165,9 @@ Every event uses the envelope `{v, type, session_id, seq, ts, payload}`.
   - Hit `source` is `lexicon | model | llm`, and `counted` says whether it fed the score.
     Contributions have `coercion.<TACTIC>` (combined) plus `coercion.<TACTIC>.<source>`.
 - **Coercion fusion (B3.5 decision, final until B7 learns weights):**
-  - The trained classifier is the **primary** signal (`mode=model`): only its detections count.
+  - The trained classifier is the **primary** signal (`mode=model`): only its detections count as
+    tactic evidence. Lexicon **protective** cues ("visit your branch", "never share your OTP")
+    lower risk in both modes, capped at `protective_max_reduction`.
   - The lexicon supplies evidence spans and plain-language explanations (`counted=false`).
   - It may add `lexicon_boost` to a tactic only when the classifier already scores it at or above
     the val-tuned gate, and only if that doesn't raise hard-negative false alarms. Currently off:
@@ -258,5 +260,9 @@ access to it.
   `POST api.fetch.tinyfish.ai`, `X-API-Key`). It receives only a listed institution name, phone,
   UPI ID or URL: never personal names, message text, transcripts or the elder's details.
   Verification alone can never reach HIGH.
+- **/check rules:**
+  - A number that MATCHES the official helpline is never searched for fraud reports.
+  - A claimed identity alone stays LOW.
+  - Pasted-message tactics count at `manual_check.message_weight` (0.5).
 - To stop a server you started, use `kill $(lsof -tnP -iTCP:8000 -sTCP:LISTEN)`. `pkill -f "python -m app"`
   misses it, because macOS reports the process as `Python`.

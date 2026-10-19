@@ -2,9 +2,9 @@
 
 Evidence per utterance (`mode` on every result):
   - `model`: the trained classifier (app/coercion/model_tagger.py) is the primary signal. Only its
-    detections count toward the score. Lexicon hits are still reported (`counted=false`) for
-    evidence spans and explanations, and may add a small boost to a tactic the classifier already
-    scores above the tuned gate.
+    detections count as tactic evidence. Lexicon tactic hits are still reported (`counted=false`)
+    for evidence spans and explanations, and may add a small boost to a tactic the classifier
+    already scores above the tuned gate. Lexicon protective cues count in both modes.
   - `lexicon_fallback`: the classifier is missing, disabled, timed out or failed for this
     utterance, so lexicon hits (including protective cues) count instead.
 An optional LLM tagger (`CoercionTagger`, off until the LLM milestone) adds counted hits.
@@ -171,8 +171,13 @@ class CallCoercion:
         )
         if probs is not None:
             mode = "model"
-            counted = engine.model.fuse(probs, lexicon_hits, text, normalized)
-            shown = [(h, True) for h in counted] + [(h, False) for h in lexicon_hits]
+            # Protective cues ("visit your branch", "never share your OTP") lower risk in both
+            # modes, capped by coercion.protective_max_reduction. Lexicon tactic hits don't count.
+            protective = [h for h in lexicon_hits if h.category == PROTECTIVE]
+            counted = [*engine.model.fuse(probs, lexicon_hits, text, normalized), *protective]
+            shown = [(h, True) for h in counted] + [
+                (h, False) for h in lexicon_hits if h.category != PROTECTIVE
+            ]
             lexicon_tactics = {h.category for h in lexicon_hits if h.score > 0}
             model_probs = {
                 t: round(p, 4) for t, p in engine.model.boosted(probs, lexicon_tactics).items()

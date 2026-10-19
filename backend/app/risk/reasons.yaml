@@ -62,8 +62,8 @@ verify:
     url: {en: "website", hi: "वेबसाइट"}
   contact:
     MATCH:
-      en: "This number is listed on {name}'s official website. Scammers can fake caller ID, so if in doubt, hang up and call back yourself."
-      hi: "यह नंबर {name} की आधिकारिक वेबसाइट पर दिया गया है। धोखेबाज़ कॉलर आईडी नकली दिखा सकते हैं, इसलिए शक हो तो फ़ोन काटकर खुद वापस कॉल करें।"
+      en: "This number matches {name}'s official helpline (see the source below). Scammers can fake caller ID, so if unsure, hang up and call this number yourself."
+      hi: "यह नंबर {name} की आधिकारिक हेल्पलाइन से मेल खाता है (नीचे स्रोत देखें)। धोखेबाज़ कॉलर आईडी नकली दिखा सकते हैं, इसलिए शक हो तो फ़ोन काटकर इसी नंबर पर खुद कॉल करें।"
     MISMATCH:
       en: "This number is not listed on {name}'s official website. Hang up and call the official number {official} yourself."
       hi: "यह नंबर {name} की आधिकारिक वेबसाइट पर नहीं है। फ़ोन काटें और आधिकारिक नंबर {official} पर खुद कॉल करें।"
@@ -96,6 +96,12 @@ verify:
   reason_mismatch:
     en: "The caller's number is not on {name}'s official website"
     hi: "कॉल करने वाले का नंबर {name} की आधिकारिक वेबसाइट पर नहीं है"
+  reason_match:
+    en: "The number matches {name}'s official helpline (caller ID can still be faked)"
+    hi: "नंबर {name} की आधिकारिक हेल्पलाइन से मेल खाता है (फिर भी कॉलर आईडी नकली हो सकती है)"
+  reason_protective:
+    en: "Some of what they said is what genuine organisations advise, such as visiting the branch or never sharing an OTP"
+    hi: "उनकी कुछ बातें वही हैं जो असली संस्थाएँ सलाह देती हैं, जैसे शाखा जाना या ओटीपी कभी न बताना"
   reason_reports:
     en: "The web has fraud reports mentioning this {kind}"
     hi: "इंटरनेट पर इस {kind} से जुड़ी धोखाधड़ी की शिकायतें हैं"
@@ -120,6 +126,9 @@ next_steps:
   install_app:
     en: "Do not install any app a caller asks for. If you already did, uninstall it and call your bank."
     hi: "कॉल करने वाले के कहने पर कोई ऐप इंस्टॉल न करें। कर लिया हो तो उसे हटाएँ और अपने बैंक को कॉल करें।"
+  match:
+    en: "If you are unsure, hang up and call {official} yourself."
+    hi: "शक हो तो फ़ोन काटें और {official} पर खुद कॉल करें।"
   general:
     en: "If anything feels wrong, hang up and call the organisation's official number yourself."
     hi: "कुछ भी गलत लगे तो फ़ोन काटें और संस्था के आधिकारिक नंबर पर खुद कॉल करें।"
