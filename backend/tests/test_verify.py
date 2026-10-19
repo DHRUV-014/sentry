@@ -97,6 +97,7 @@ def make_verifier(fake, **kw):
         ("+91-98765-43210", "9876543210"),
         ("09876543210", "9876543210"),
         ("1800 202 6161", "18002026161"),
+        ("1800 1600", "18001600"),
         ("022 6160 6161", "2261606161"),
         ("+44 20 7946 0958", "+442079460958"),
         ("12345", None),
@@ -193,8 +194,25 @@ async def test_institution_contact_falls_back_to_fetch_when_snippets_have_no_num
 
     fake = FakeTinyFish(search=search, fetch=fetch)
     r = await make_verifier(fake).institution_contact("ICICI Bank", "9876543210")
-    assert r.verdict == "MISMATCH" and r.official_contact == "1860 120 7777"
+    assert r.verdict == "MISMATCH" and r.official_contact == "1800 1080"  # short toll-free
+    assert r.other_official_contacts == ["1860 120 7777"]
     assert any(req.url.host == "api.fetch.tinyfish.ai" for req in fake.requests)
+
+
+async def test_general_helpline_ranks_above_product_helplines():
+    def search(q, domains):
+        return [
+            result("https://homeloans.hdfc.bank.in/helpline", "Home Loan Customer Care",
+                   "Helpline Numbers. Our Toll Free Helpline Number : 1800 210 0018"),
+            result("https://www.hdfc.bank.in/contact-us", "Contact us",
+                   "PhoneBanking customer care: 1800 202 6161 / 1860 267 6161"),
+        ]  # fmt: skip
+
+    r = await make_verifier(FakeTinyFish(search=search)).institution_contact(
+        "HDFC Bank", "18002100018"
+    )
+    assert r.official_contact == "1800 202 6161"
+    assert r.verdict == "MATCH"  # the home-loan line is still an official number
 
 
 async def test_unlisted_institution_is_never_searched():

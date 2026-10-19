@@ -64,6 +64,7 @@ class CheckResult(BaseModel):
     verdict: str
     status: Literal["ok", "unavailable", "skipped"]
     official_contact: str | None = None
+    other_official_contacts: list[str] = []  # further numbers found on the official domain
     sources: list[Source] = []
     latency_ms: float
     cached: bool = False
@@ -124,6 +125,8 @@ class Verifier:
         cfg = self.sources
         domains = cfg["institutions"][name]["domains"]
         keywords = [k.lower() for k in cfg["contact_keywords"]]
+        strong = [k.lower() for k in cfg["contact_strong_keywords"]]
+        product = [k.lower() for k in cfg["contact_deprioritize"]]
         results = await self.client.search(
             cfg["contact_query"].format(name=name),
             include_domains=domains,
@@ -131,16 +134,24 @@ class Verifier:
         )
         official = [r for r in results if _host_in(r.url, domains)]
         fetched_at = _now()
-        counts: Counter[str] = Counter()
+        scores: Counter[str] = Counter()
         evidence: dict[str, Source] = {}
+        best_score: dict[str, int] = {}
 
         def scan(text: str, url: str, title: str) -> None:
             low = text.lower()
             for number, pos in phones_in_text(text):
                 ctx = low[max(0, pos - CONTEXT_CHARS) : pos + CONTEXT_CHARS]
                 if any(k in ctx for k in keywords):
-                    counts[number] += 2 if number.startswith("18") else 1
-                    if number not in evidence:
+                    where = f"{url} {title}".lower()
+                    score = (
+                        (2 if number.startswith("18") else 1)
+                        + (1 if any(k in ctx for k in strong) else 0)
+                        - (2 if any(p in where for p in product) else 0)
+                    )
+                    scores[number] += score
+                    if number not in evidence or score > best_score[number]:  # cite the best page
+                        best_score[number] = score
                         snippet = text[max(0, pos - 80) : pos + 60].replace("\n", " ").strip()
                         evidence[number] = Source(
                             url=url, title=title, snippet=snippet, fetched_at=fetched_at
@@ -148,7 +159,7 @@ class Verifier:
 
         for r in official:
             scan(f"{r.title}. {r.snippet}", r.url, r.title)
-        if not counts and official:
+        if not scores and official:
             pages, _ = await self.client.fetch(
                 [r.url for r in official[:2]],
                 purpose=f"Read {name}'s official contact page for its helpline number",
@@ -157,7 +168,7 @@ class Verifier:
             for p in pages:
                 if _host_in(p.final_url or p.url, domains):
                     scan(p.text, p.final_url or p.url, p.title)
-        ranked = [n for n, _ in counts.most_common()]
+        ranked = [n for n, _ in scores.most_common()]
         sources: dict[str, Source] = {}
         for n in ranked:
             sources.setdefault(evidence[n].url, evidence[n])  # one entry per page
@@ -200,6 +211,7 @@ class Verifier:
             "institution_contact", inp, verdict, "ok", t0, note,
             name=name, official=official or "",
             official_contact=official,
+            other_official_contacts=[display_phone(n) for n in numbers[1:4]],
             sources=[Source(**s) for s in payload["sources"]],
             cached=cached, fetched_at=fetched_at,
         )  # fmt: skip

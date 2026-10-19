@@ -16,7 +16,7 @@ _PHONE_IN_TEXT = re.compile(r"(?<![\w/])\+?\d[\d \-()]{7,18}\d(?![\w/])")
 def normalize_phone(raw: str) -> str | None:
     """Canonical Indian number, or None if invalid.
 
-    - toll-free 1800/1860 + 7 digits -> 11 digits ("18002026161")
+    - toll-free 1800/1860 + 4-7 digits -> 8-11 digits ("18002026161", "18001600")
     - mobile 6-9 + 9 digits (optionally +91 / 0 prefixed) -> 10 digits
     - landline 0 + STD + number (10 digits after the 0) -> 10 digits without the 0
     - other E.164 (+ and 8-15 digits, not +91) -> "+<digits>"
@@ -33,7 +33,7 @@ def normalize_phone(raw: str) -> str | None:
         s = digits[2:]
     if not s.isdigit():
         return None
-    if re.fullmatch(r"18[06]0\d{7}", s):
+    if re.fullmatch(r"18[06]0\d{4,7}", s):
         return s
     if len(s) == 12 and s.startswith("91"):
         s = s[2:]
@@ -57,8 +57,10 @@ def phones_in_text(text: str) -> list[tuple[str, int]]:
 
 
 def display_phone(n: str) -> str:
-    if n.startswith("18") and len(n) == 11:
+    if re.fullmatch(r"18[06]0\d{7}", n):
         return f"{n[:4]} {n[4:7]} {n[7:]}"
+    if re.fullmatch(r"18[06]0\d{4,6}", n):
+        return f"{n[:4]} {n[4:]}"
     if len(n) == 10 and n[0] in "6789":
         return f"+91 {n[:5]} {n[5:]}"
     if len(n) == 10:

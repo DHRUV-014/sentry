@@ -47,6 +47,11 @@ institutions:
 contact_query: "{name} customer care helpline toll free number"
 # Words that mark a line on an official page as a contact number.
 contact_keywords: [customer care, helpline, toll free, toll-free, call us, contact us, phone banking, 24x7]
+# Ranking among numbers found on official pages: general customer care / phone banking first,
+# product-specific helplines (home loans, cards, insurance...) last. Every number found is
+# still treated as official for MATCH/MISMATCH.
+contact_strong_keywords: [customer care, phone banking, phonebanking, helpline, contact centre, contact center]
+contact_deprioritize: [homeloan, home-loan, home loan, credit-card, credit card, loan, insurance, mutual-fund, demat, nri, securities, life, forex, terms-and-conditions, .pdf]
 
 # Advisory search: the first scenario whose conditions match the form is used. Queries are generic
 # (they never contain anything the user typed) and are restricted to advisory_domains.
