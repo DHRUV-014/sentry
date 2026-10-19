@@ -10,8 +10,9 @@ from app.events import ComponentStatus
 
 COMPONENTS = ("stt", "vad", "lexicon", "classifier", "llm", "voice", "verify", "alerts", "storage")
 
-# Components whose failure means the core pipeline can't produce a risk score.
-CORE_COMPONENTS = ("stt", "vad", "lexicon", "storage")
+# Components whose failure degrades the pipeline. Without the classifier the coercion score falls
+# back to the lexicon alone, which is reported as degraded.
+CORE_COMPONENTS = ("stt", "vad", "lexicon", "classifier", "storage")
 
 
 @dataclass(frozen=True)

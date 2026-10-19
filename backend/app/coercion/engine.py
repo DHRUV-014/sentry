@@ -1,9 +1,13 @@
-"""CoercionEngine: lexicon hits per utterance + call-level sequence scoring.
+"""CoercionEngine: per-utterance tactic evidence + call-level sequence scoring.
 
-Two optional taggers add hits for phrasings the lexicon misses, both behind the `CoercionTagger`
-interface and each with its own timeout and status:
-  - `model`: our trained tactic classifier (app/coercion/model_tagger.py)
-  - `tagger`: an LLM tagger, off until the LLM milestone (`LLM_ENABLED=false`)
+Evidence per utterance (`mode` on every result):
+  - `model`: the trained classifier (app/coercion/model_tagger.py) is the primary signal. Only its
+    detections count toward the score. Lexicon hits are still reported (`counted=false`) for
+    evidence spans and explanations, and may add a small boost to a tactic the classifier already
+    scores above the tuned gate.
+  - `lexicon_fallback`: the classifier is missing, disabled, timed out or failed for this
+    utterance, so lexicon hits (including protective cues) count instead.
+An optional LLM tagger (`CoercionTagger`, off until the LLM milestone) adds counted hits.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from app.coercion.lexicon import PROTECTIVE, Hit, Lexicon, MatchConfig
+from app.coercion.model_tagger import ModelTagger
 from app.coercion.sequence import (
     ChainStep,
     CoercionConfig,
@@ -48,6 +53,21 @@ async def _run_tagger(
         return [], "error"
 
 
+async def _run_model(
+    model: ModelTagger | None, text: str, normalized: NormalizedText, budget_s: float
+) -> tuple[dict[str, float] | None, str]:
+    """Classifier probabilities and status (`disabled | ok | timeout | error`)."""
+    if model is None:
+        return None, "disabled"
+    try:
+        return await asyncio.wait_for(model.ascores(text, normalized), budget_s), "ok"
+    except TimeoutError:
+        return None, "timeout"
+    except Exception:
+        log.exception("coercion classifier failed")
+        return None, "error"
+
+
 class HitOut(BaseModel):
     tactic: str
     pattern: str
@@ -57,6 +77,8 @@ class HitOut(BaseModel):
     score: float
     negated: bool
     source: str = "lexicon"
+    # False = shown as evidence only (lexicon hits while the classifier is the primary signal).
+    counted: bool = True
 
 
 class CoercionResult(BaseModel):
@@ -72,6 +94,8 @@ class CoercionResult(BaseModel):
     protective_strength: float
     caps_applied: list[str]
     contributions: list[Contribution]
+    mode: str  # model | lexicon_fallback
+    model_probs: dict[str, float] | None  # classifier probabilities (after any lexicon boost)
     model_status: str
     llm_status: str
 
@@ -84,7 +108,7 @@ class CoercionEngine:
         levels: Levels,
         tagger: CoercionTagger | None = None,
         tagger_timeout_s: float = 2.0,
-        model: CoercionTagger | None = None,
+        model: ModelTagger | None = None,
         model_timeout_s: float = 1.0,
     ) -> None:
         self.lexicon = lexicon
@@ -99,7 +123,7 @@ class CoercionEngine:
     def load(
         cls,
         tagger: CoercionTagger | None = None,
-        model: CoercionTagger | None = None,
+        model: ModelTagger | None = None,
         model_timeout_s: float = 1.0,
     ) -> CoercionEngine:
         weights = load_weights()
@@ -138,16 +162,28 @@ class CallCoercion:
     ) -> CoercionResult:
         engine = self._engine
         normalized = normalized or normalize(text)
-        hits = engine.lexicon.match(normalized)
-        model_hits, model_status = await _run_tagger(
+        lexicon_hits = engine.lexicon.match(normalized)
+        probs, model_status = await _run_model(
             engine.model, text, normalized, engine.model_timeout_s
         )
         llm_hits, llm_status = await _run_tagger(
             engine.tagger, text, normalized, engine.tagger_timeout_s
         )
-        hits = [*hits, *model_hits, *llm_hits]
+        if probs is not None:
+            mode = "model"
+            counted = engine.model.fuse(probs, lexicon_hits, text, normalized)
+            shown = [(h, True) for h in counted] + [(h, False) for h in lexicon_hits]
+            lexicon_tactics = {h.category for h in lexicon_hits if h.score > 0}
+            model_probs = {
+                t: round(p, 4) for t, p in engine.model.boosted(probs, lexicon_tactics).items()
+            }
+        else:
+            mode, counted, model_probs = "lexicon_fallback", lexicon_hits, None
+            shown = [(h, True) for h in lexicon_hits]
+        counted = [*counted, *llm_hits]
+        shown += [(h, True) for h in llm_hits]
 
-        snap = self._tracker.update(utterance_id, t_s, hits, verification_mismatch)
+        snap = self._tracker.update(utterance_id, t_s, counted, verification_mismatch)
         return CoercionResult(
             utterance_id=utterance_id,
             hits=[
@@ -160,8 +196,9 @@ class CallCoercion:
                     score=round(h.score, 4),
                     negated=h.negated,
                     source=h.source,
+                    counted=c,
                 )
-                for h in hits
+                for h, c in shown
             ],
             score=snap.score,
             raw_score=snap.raw_score,
@@ -173,6 +210,8 @@ class CallCoercion:
             protective_strength=snap.protective_strength,
             caps_applied=snap.caps_applied,
             contributions=snap.contributions,
+            mode=mode,
+            model_probs=model_probs,
             model_status=model_status,
             llm_status=llm_status,
         )

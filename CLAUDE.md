@@ -47,7 +47,7 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
 | B2 | Audio ingest + VAD + STT, `tools/stream_wav.py`, STT benchmark | ✅ done |
 | B2.1 | Never translate, Hindi fallback, warm-up gate, shared text normalization, prompt experiment | ✅ done |
 | B3 | Coercion engine (lexicon + sequence) + entity extraction | ✅ done |
-| B3.5 | Train our coercion classifier | in progress |
+| B3.5 | Train our coercion classifier | trained (e5-small); held-out eval pending "training frozen" |
 | B4 | Risk fusion + alert dispatcher with the **dashboard** alert channel | |
 | F1 | WebRTC call `/caller` ↔ `/elder` streaming to the backend | |
 | F2 | `/elder` live risk banner + full-screen warning (English + Hindi) | |
@@ -128,7 +128,8 @@ samples/                 local audio (gitignored); samples/synthetic_tts/ = rend
 - `WS /ws/audio/{id}`: binary 20 ms frames, 16 kHz mono int16 (exactly 640 bytes, or whole multiples)
 - `WS /ws/events/{id}`: JSON events. Late subscribers first receive recent events again.
 - `POST /sessions/{id}/end`: drains in-flight transcriptions, then emits `status session ended`
-- `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, storage`
+- `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, storage`. Overall
+  `degraded` unless the core (`stt, vad, lexicon, classifier, storage`) is ok.
 
 ## Events
 
@@ -149,9 +150,18 @@ Every event uses the envelope `{v, type, session_id, seq, ts, payload}`.
   - Call-level fields: `score`, `raw_score`, `level`, `tactic_strengths`, `stages_reached`,
     `chain[]` (`{tactic, stage, utterance_id, t_s}`), `ordered`, `protective_strength`,
     `caps_applied`, `contributions[]` (`{signal, value, weight, evidence_utterance_id}`),
-    `model_status`, `llm_status` (`disabled | ok | timeout | error`).
-  - Hit `source` is `lexicon | model | llm`. Contributions have `coercion.<TACTIC>` (combined) plus
-    `coercion.<TACTIC>.<source>` per evidence source.
+    `mode`, `model_probs`, `model_status`, `llm_status` (`disabled | ok | timeout | error`).
+  - Hit `source` is `lexicon | model | llm`, and `counted` says whether it fed the score.
+    Contributions have `coercion.<TACTIC>` (combined) plus `coercion.<TACTIC>.<source>`.
+- **Coercion fusion (B3.5 decision, final until B7 learns weights):**
+  - The trained classifier is the **primary** signal (`mode=model`): only its detections count.
+  - The lexicon supplies evidence spans and plain-language explanations (`counted=false`).
+  - It may add `lexicon_boost` to a tactic only when the classifier already scores it at or above
+    the val-tuned gate, and only if that doesn't raise hard-negative false alarms. Currently off:
+    no gain of at least 0.005.
+  - **Never combine lexicon and classifier with max().**
+  - If the classifier is missing or fails, `mode=lexicon_fallback` and `/health` reports
+    `degraded`, because `classifier` is a core component.
 - **`entities`** (when an utterance contains any):
   - `entities[]`: `{kind: phone|upi|url|case_id|institution, value, raw, detail}`
   - `claims_so_far[]`: every distinct claim in the call so far.

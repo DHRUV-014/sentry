@@ -22,4 +22,6 @@ for enc in e5-small minilm-l12; do
   done
 done
 $PY -m training.coercion.compare
-$PY -m training.coercion.export --run "$($PY -m training.coercion.compare --best)"
+$PY -m training.coercion.export --run "$($PY -m training.coercion.compare --best)" --precision "${PRECISION:-fp32}"
+$PY -m training.coercion.tune_boost
+$PY -m training.coercion.vs_lexicon

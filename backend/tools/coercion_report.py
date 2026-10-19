@@ -5,7 +5,8 @@ Sources:
   --live       the latest live STT run (samples/synthetic_tts/runs/*.jsonl): the real Whisper
                output of the synthetic calls, i.e. text with actual STT errors
 
-  --model      also run the trained tactic classifier (models/coercion/) next to the lexicon
+  --model      use the trained classifier as the primary signal (models/coercion/); without it
+               the engine runs in lexicon_fallback mode
 
 Usage: python -m tools.coercion_report [--fixtures] [--live] [--model] [-v]
 """
@@ -23,7 +24,7 @@ from app.analysis import CallAnalyzer
 from app.coercion.engine import CoercionEngine
 from app.coercion.model_tagger import ModelTagger, TacticModel
 from app.entities.extract import EntityExtractor
-from app.risk.levels import Level, load_weights
+from app.risk.levels import Level
 from tools.make_test_audio import DEFAULT_OUT
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -107,8 +108,7 @@ def print_result(r: dict, verbose: bool) -> None:
 async def main_async(args) -> int:
     model = None
     if args.model:
-        weight = float(load_weights()["model_tagger"]["weight"])
-        model = ModelTagger(TacticModel.load(), weight)
+        model = ModelTagger.from_config(TacticModel.load())
         print(f"classifier: {model.describe()}")
     engine = CoercionEngine.load(model=model)
     extractor = EntityExtractor.load(engine.lexicon.cfg)

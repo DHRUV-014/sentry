@@ -1,6 +1,6 @@
 # Progress: Scam Shield backend
 
-Last updated: 2026-10-19, during B3.5. CLAUDE.md has the principles, build order and rules; this
+Last updated: 2026-10-19. B3.5 is trained, and the model is frozen pending held-out evaluation. CLAUDE.md has the principles, build order and rules; this
 file tracks where the work stands.
 
 ## Hard rule: held-out data
@@ -53,6 +53,10 @@ Training, threshold tuning and model selection never touch it.
   - Audio exists only in a temp dir.
 - **Split** by prompt id: `VAL_PROMPTS = p07 p08 p09 p22 p23 p24`, two batches per language. A
   noisy row follows its source's prompt.
+- **Fusion (decided by the user):**
+  - The classifier is the primary signal. The lexicon gives evidence spans and explanations, a
+    gated boost (off), and a fallback that shows as degraded in `/health`.
+  - Lexicon and classifier are never combined with max().
 - **Model:**
   - Architecture: encoder, then mean pooling, then 7 sigmoid outputs. Input is the caller
     utterance only, because the live pipeline hears only the caller.
@@ -107,17 +111,63 @@ the source text:
 
 The run averaged 4.7 s per row, slowed down by macOS background services competing for the CPU.
 
-### Preliminary results
+### Results (val, split by prompt id: 784 rows, 190 of them STT-noised)
 
-These runs trained on clean text only, before the noisy copy existed:
+Thresholds, the best epoch and the model choice were all selected on val, so these numbers are
+optimistic. The real test is `eval/human/`, after "training frozen".
 
-| Run | Val macro-F1 |
-|---|---|
-| e5-small, original text | 0.709 |
-| MiniLM-L12, original text | 0.760 |
-| MiniLM-L12, original text, int8 | 0.746 |
+**Columns:**
+- **F1 (all):** macro-F1 over the seven tactics, on all val rows.
+- **F1 (STT):** macro-F1 on the STT-noised val rows only, which is closest to live input.
+- **AUTH … CRED:** per-tactic F1 for AUTHORITY, THREAT, URGENCY, SECRECY, ISOLATION, PAYMENT and
+  CREDENTIAL.
+- **False alarms:** the share of hard-negative or chat rows where at least one tactic fired.
 
-The int8 model's latency is 17.8 ms median and 23.3 ms p95 per utterance on CPU with 1 thread.
+| Run | Train data | F1 (all) | F1 (STT) | AUTH | THRT | URG | SECR | ISOL | PAY | CRED | False alarms, hard neg. | False alarms, chat |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **e5-small, original text (shipped)** | clean + noisy | **0.714** | **0.599** | 0.707 | 0.707 | 0.628 | 0.652 | 0.800 | 0.715 | 0.786 | 0.068 | 0.020 |
+| e5-small, original text | clean only | 0.677 | 0.507 | 0.730 | 0.670 | 0.539 | 0.582 | 0.759 | 0.689 | 0.769 | 0.089 | 0.005 |
+| MiniLM-L12, original text | clean + noisy | 0.719 | 0.586 | 0.723 | 0.630 | 0.625 | 0.830 | 0.773 | 0.678 | 0.776 | 0.084 | 0.030 |
+| MiniLM-L12, original text | clean only | 0.709 | 0.491 | 0.725 | 0.663 | 0.631 | 0.731 | 0.769 | 0.679 | 0.764 | 0.059 | 0.035 |
+| e5-small, normalized text | clean + noisy | 0.544 | 0.449 | | | | | | | | 0.101 | 0.020 |
+| MiniLM-L12, normalized text | clean + noisy | 0.652 | 0.578 | | | | | | | | 0.101 | 0.030 |
+| MuRIL-base, try 1 | clean + noisy | collapsed at encoder lr 3e-5 / head 1e-3: loss flat at 0.30, F1 0.0 after 4 epochs | | | | | | | | | | |
+| MuRIL-base, try 2 | clean + noisy | not completed at encoder lr 2e-5 / head 5e-4 (stopped by the user) | | | | | | | | | | |
+| Lexicon alone | none | 0.335 | 0.244 | 0.453 | 0.246 | 0.261 | 0.339 | 0.173 | 0.325 | 0.549 | 0.165 | 0.025 |
+| Lexicon + classifier, combined by max() (rejected) | | 0.702 | 0.593 | 0.649 | 0.696 | 0.612 | 0.737 | 0.809 | 0.688 | 0.722 | 0.219 | 0.045 |
+
+**Choices:**
+- **Model:** we ship `e5-small-raw`, exported as fp32 ONNX. `compare.py` picks the run with the
+  best F1 on the STT-noised val rows.
+- **Precision:** int8 would cost e5 0.047 macro-F1, while fp32 matches torch exactly. For
+  reference, MiniLM in int8 scores 0.723 overall and 0.594 on STT-noised rows, at 6 ms.
+- **Latency** (single utterance, CPU, 1 thread, including tokenization):
+  - Lightly loaded machine: 17.7 ms median, 22.0 ms p95.
+  - Under STT load: 28.5 ms median, 39.4 ms p95.
+  - The budget is 150 ms.
+- **Lexicon boost:** off. The best gate (0.35) gained only +0.001 macro-F1, below the 0.005
+  minimum.
+
+**Call level** (`coercion_report`: 20 fixtures plus 8 live synthetic STT calls):
+- **Lexicon fallback:** 28 of 28 calls meet expectations. This is leaky, because the fixtures
+  informed the lexicon.
+- **Classifier primary:** 26 of 28. For the classifier the fixtures are clean held-out data.
+- **The two misses** are scams that stopped at MEDIUM:
+  - `scam_electricity_disconnection` (Hinglish): it missed "bijli kaat di jayegi" as THREAT and
+    "Abhi turant" as URGENCY.
+  - `synthetic_scam_relative_in_trouble` (STT): it missed "उनको मैद बताना" as SECRECY. The STT
+    garbled "मत" (don't) as "मैद".
+- In both calls the lexicon caught these phrases, but in model mode lexicon hits don't count.
+- `benign_bank_fraud_alert` peaked at MEDIUM 0.51. That is still within the benign rule.
+
+**Direct vs streaming STT check (20 rows): not verified.**
+- It ran while MuRIL training saturated the machine. Direct STT took a median of 11 s per row.
+- The live path transcribed only 8 utterances across 19 sessions; the rest hit the 8 s STT
+  timeout.
+- On the 6 rows that streamed, the outputs differed from direct STT by 2–9 words, mostly where VAD
+  split the audio at the 8 s maximum.
+- Re-running direct STT on a row also didn't reproduce the saved text exactly in 7 of 19 rows.
+- It needs a re-run on an idle machine.
 
 ### Files
 
@@ -137,10 +187,8 @@ The int8 model's latency is 17.8 ms median and 23.3 ms p95 per utterance on CPU 
 
 ### Left in B3.5
 
-1. Finish the 4 final runs (clean + noisy) and the clean-only run of the same configuration, then
-   compare them.
-2. Export the best run, re-tune thresholds on the int8 model, and measure latency.
-3. Confirm on 20 rows that direct STT matches the streaming (WebSocket + VAD) path.
-4. Run `make coercion-report` with and without `--model` on the fixtures and the live run.
-5. Report val metrics and latency to the user and **stop**.
-6. After "training frozen": evaluate on `eval/human/` and commit B3.5.
+1. **Wait for "training frozen".** Then evaluate the shipped model and the lexicon on
+   `eval/human/`.
+2. Re-run the 20-row direct vs streaming STT check on an idle machine.
+3. Decide how to close the recall gaps: the lexicon caught the two call-level misses, but it can't
+   count in model mode.

@@ -1,8 +1,8 @@
 """Export a trained run to the deployable classifier in models/coercion/.
 
 1. ONNX export of encoder + pooling + head (dynamic batch and sequence length).
-2. Dynamic int8 quantization (onnxruntime).
-3. Re-score val with the *quantized* model through the same code path the app uses
+2. Optional dynamic int8 quantization (onnxruntime); `--precision fp32` keeps full precision.
+3. Re-score val with the exported model through the same code path the app uses
    (app.coercion.model_tagger.TacticModel), re-tune per-tactic thresholds on those scores,
    and record val metrics and per-utterance CPU latency of the artifact that actually ships.
 
@@ -43,7 +43,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def export_onnx(run: dict, run_dir: Path, out: Path) -> None:
+def export_onnx(run: dict, run_dir: Path, out: Path, precision: str) -> None:
     enc = run["encoder"]
     model = Classifier(enc["id"], enc["revision"], len(run["labels"]))
     model.load_state_dict(torch.load(run_dir / "model.pt", map_location="cpu"))
@@ -65,21 +65,24 @@ def export_onnx(run: dict, run_dir: Path, out: Path) -> None:
         opset_version=17,
         dynamo=False,
     )
-    quantize_dynamic(fp32, out, weight_type=QuantType.QInt8)
-    for p in out.parent.glob("model.fp32.onnx*"):
-        p.unlink()
+    if precision == "int8":
+        quantize_dynamic(fp32, out, weight_type=QuantType.QInt8)
+        fp32.unlink()
+    else:
+        fp32.replace(out)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", required=True)
     parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--precision", choices=["int8", "fp32"], default="int8")
     args = parser.parse_args()
 
     run_dir = RUNS / args.run
     run = json.loads((run_dir / "run.json").read_text())
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    export_onnx(run, run_dir, MODEL_DIR / "model.onnx")
+    export_onnx(run, run_dir, MODEL_DIR / "model.onnx", args.precision)
     shutil.copy(run_dir / "tokenizer" / "tokenizer.json", MODEL_DIR / "tokenizer.json")
 
     meta = {
@@ -89,6 +92,7 @@ def main() -> None:
         "input": run["input"],
         "max_len": run["max_len"],
         "run": run["run"],
+        "precision": args.precision,
     }
     (MODEL_DIR / "model.json").write_text(json.dumps(meta, indent=2) + "\n")
 
@@ -123,15 +127,26 @@ def main() -> None:
         "run": run["run"],
         "torch_val_metrics": run["val_metrics"],
         "torch_thresholds": run["thresholds"],
-        "int8_val_metrics": metrics,
-        "int8_thresholds": thresholds,
+        "precision": args.precision,
+        "onnx_val_metrics": metrics,
+        "onnx_thresholds": thresholds,
         "latency": latency,
         "rows": run["rows"],
         "best_epoch": run["best_epoch"],
         "history": run["history"],
     }
     (MODEL_DIR / "metrics.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps({"int8_macro_f1": metrics["macro_f1"], "latency": latency}, indent=2))
+    print(
+        json.dumps(
+            {
+                "precision": args.precision,
+                "macro_f1": metrics["macro_f1"],
+                "stt_noisy_micro_f1": metrics["by_source"]["stt_noisy"]["micro"]["f1"],
+                "latency": latency,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

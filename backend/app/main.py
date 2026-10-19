@@ -20,7 +20,6 @@ from app.config import Settings, get_settings
 from app.entities.extract import EntityExtractor
 from app.events import ComponentStatus, EventBus
 from app.pipeline import CallPipeline
-from app.risk.levels import load_weights
 from app.session import SessionManager
 from app.storage import Storage
 from app.verify.verifier import UnavailableVerifier
@@ -44,23 +43,33 @@ def _init_component_status(settings: Settings, components: ComponentRegistry) ->
 def _load_coercion_model(settings: Settings, components: ComponentRegistry) -> ModelTagger | None:
     """Load and warm up the trained tactic classifier; report why when it can't run."""
     if not settings.coercion_model_enabled:
-        components.set("classifier", ComponentStatus.DISABLED, "COERCION_MODEL_ENABLED=false")
+        components.set(
+            "classifier",
+            ComponentStatus.DISABLED,
+            "COERCION_MODEL_ENABLED=false; coercion runs on the lexicon fallback",
+        )
         return None
     try:
         model = TacticModel.load(
             settings.resolved_coercion_model_dir, settings.coercion_model_threads
         )
-        tagger = ModelTagger(model, weight=float(load_weights()["model_tagger"]["weight"]))
+        tagger = ModelTagger.from_config(model)
         tagger.hits("warm up")  # the first ONNX run allocates; keep it off the first call
         components.set("classifier", ComponentStatus.OK, tagger.describe())
         return tagger
     except ModelUnavailable as exc:
         components.set(
-            "classifier", ComponentStatus.UNAVAILABLE, f"{exc}; run `make train-coercion`"
+            "classifier",
+            ComponentStatus.UNAVAILABLE,
+            f"{exc}; run `make train-coercion`; coercion runs on the lexicon fallback",
         )
     except Exception as exc:
         log.exception("coercion classifier failed to load")
-        components.set("classifier", ComponentStatus.UNAVAILABLE, f"load failed: {exc}")
+        components.set(
+            "classifier",
+            ComponentStatus.UNAVAILABLE,
+            f"load failed: {exc}; coercion runs on the lexicon fallback",
+        )
     return None
 
 

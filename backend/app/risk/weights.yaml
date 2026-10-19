@@ -63,6 +63,10 @@ matching:
   confidence_floor: 0.75
 
 model_tagger:
-  # A trained-classifier detection becomes a hit with score = weight x probability, combined with
-  # lexicon hits per tactic (max per utterance). Lexicon pattern weights are in the same range.
+  # The classifier is the primary coercion signal: a detection becomes a hit with
+  # score = weight x probability. Lexicon hits count only in lexicon_fallback mode.
   weight: 0.8
+  # A lexicon hit may add this much to the classifier probability of the same tactic, only when
+  # the classifier already scores it >= lexicon_boost_gate (tuned on val by
+  # training/coercion/tune_boost.py and stored in models/coercion/model.json; null = off).
+  lexicon_boost: 0.10

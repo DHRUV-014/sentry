@@ -49,6 +49,15 @@ ENCODERS = {
         "prefix": "",
         "lr": 5e-5,
     },
+    "muril-base": {
+        "id": "google/muril-base-cased",
+        "revision": "afd9f36c7923d54e97903922ff1b260d091d202f",
+        "license": "apache-2.0",
+        "prefix": "",
+        # 3e-5 with a 1e-3 head collapsed to "no tactic" (loss flat at 0.30 for 4 epochs).
+        "lr": 2e-5,
+        "head_lr": 5e-4,
+    },
 }
 # One round of batches (one prompt per language) every five rounds -> ~18% of prompts.
 VAL_PROMPTS = {"p07", "p08", "p09", "p22", "p23", "p24"}
@@ -124,6 +133,14 @@ def evaluate(rows: list[dict], probs: np.ndarray, thresholds: dict[str, float]) 
     def subset(mask: np.ndarray) -> dict:
         return {
             "rows": int(mask.sum()),
+            "macro_f1": round(
+                float(
+                    np.mean(
+                        [prf(y[mask][:, k], pred[mask][:, k])["f1"] for k in range(len(TACTICS))]
+                    )
+                ),
+                4,
+            ),
             "micro": prf(y[mask].ravel(), pred[mask].ravel()),
             "any_tactic": prf(y[mask].any(1), pred[mask].any(1)),
         }
@@ -161,6 +178,29 @@ def predict(model, tok, texts: list[str], device: str, batch: int = 64) -> np.nd
         ).to(device)
         out.append(torch.sigmoid(model(enc["input_ids"], enc["attention_mask"])).float().cpu())
     return torch.cat(out).numpy()
+
+
+def rescore(run_name: str) -> dict:
+    """Recompute val metrics of a finished run with the current `evaluate` (same thresholds)."""
+    run_dir = RUNS / run_name
+    run = json.loads((run_dir / "run.json").read_text())
+    rows = [r for r in load_rows() if r["prompt_id"] in set(run["val_prompts"])]
+    probs_path = run_dir / "val_probs.npy"
+    if probs_path.exists():
+        probs = np.load(probs_path)
+    else:
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        enc = run["encoder"]
+        tok = AutoTokenizer.from_pretrained(run_dir / "tokenizer")
+        model = Classifier(enc["id"], enc["revision"], len(TACTICS)).to(device)
+        model.load_state_dict(torch.load(run_dir / "model.pt", map_location=device))
+        probs = predict(
+            model, tok, [model_input(r, run["input"], enc["prefix"]) for r in rows], device
+        )
+        np.save(probs_path, probs)
+    run["val_metrics"] = evaluate(rows, probs, run["thresholds"])
+    (run_dir / "run.json").write_text(json.dumps(run, indent=2, ensure_ascii=False) + "\n")
+    return run
 
 
 def main() -> None:
@@ -204,7 +244,7 @@ def main() -> None:
     opt = torch.optim.AdamW(
         [
             {"params": model.encoder.parameters(), "lr": enc_cfg["lr"]},
-            {"params": model.head.parameters(), "lr": HEAD_LR},
+            {"params": model.head.parameters(), "lr": enc_cfg.get("head_lr", HEAD_LR)},
         ],
         weight_decay=0.01,
     )
@@ -256,6 +296,7 @@ def main() -> None:
             best = {"epoch": epoch, "macro_f1": default["macro_f1"], "probs": probs}
             torch.save(model.state_dict(), run_dir / "model.pt")
 
+    np.save(run_dir / "val_probs.npy", best["probs"])
     thresholds = tune_thresholds(y_val, best["probs"])
     metrics = evaluate(val, best["probs"], thresholds)
     tok.save_pretrained(run_dir / "tokenizer")
@@ -273,7 +314,7 @@ def main() -> None:
             "val_stt_noisy": sum(r["source"] == "stt_noisy" for r in val),
         },
         "hyper": {
-            "head_lr": HEAD_LR,
+            "head_lr": enc_cfg.get("head_lr", HEAD_LR),
             "epochs": args.epochs,
             "batch": args.batch,
             "lr": enc_cfg["lr"],
