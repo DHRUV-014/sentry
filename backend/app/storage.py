@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS alerts (
     latency_ms  REAL,
     error       TEXT
 );
+CREATE TABLE IF NOT EXISTS verify_cache (
+    key         TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,
+    fetched_at  TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS contacts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL,
@@ -187,3 +192,24 @@ class Storage:
             " ORDER BY id"
         )
         return [Contact(i, n, p) for i, n, p in await cursor.fetchall()]
+
+    async def cache_get(self, key: str) -> tuple[dict, datetime] | None:
+        """Verification cache (official sources only; no transcripts)."""
+        if self._db is None:
+            return None
+        cursor = await self._db.execute(
+            "SELECT payload, fetched_at FROM verify_cache WHERE key = ?", (key,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return json.loads(row[0]), datetime.fromisoformat(row[1])
+
+    async def cache_put(self, key: str, payload: dict) -> None:
+        if self._db is None:
+            return
+        await self._db.execute(
+            "INSERT OR REPLACE INTO verify_cache (key, payload, fetched_at) VALUES (?, ?, ?)",
+            (key, json.dumps(payload, ensure_ascii=False), datetime.now(UTC).isoformat()),
+        )
+        await self._db.commit()

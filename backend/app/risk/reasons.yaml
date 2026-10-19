@@ -53,3 +53,76 @@ alert:
   action_default:
     en: "Call them now"
     hi: "उन्हें अभी फ़ोन करें"
+
+# Verification results (B6). {name} = institution, {official} = official number, {kind} = what was checked.
+verify:
+  kinds:
+    phone: {en: "number", hi: "नंबर"}
+    upi: {en: "UPI ID", hi: "यूपीआई आईडी"}
+    url: {en: "website", hi: "वेबसाइट"}
+  contact:
+    MATCH:
+      en: "This number is listed on {name}'s official website. Scammers can fake caller ID, so if in doubt, hang up and call back yourself."
+      hi: "यह नंबर {name} की आधिकारिक वेबसाइट पर दिया गया है। धोखेबाज़ कॉलर आईडी नकली दिखा सकते हैं, इसलिए शक हो तो फ़ोन काटकर खुद वापस कॉल करें।"
+    MISMATCH:
+      en: "This number is not listed on {name}'s official website. Hang up and call the official number {official} yourself."
+      hi: "यह नंबर {name} की आधिकारिक वेबसाइट पर नहीं है। फ़ोन काटें और आधिकारिक नंबर {official} पर खुद कॉल करें।"
+    OFFICIAL_ONLY:
+      en: "{name}'s official helpline is {official}."
+      hi: "{name} का आधिकारिक हेल्पलाइन नंबर {official} है।"
+    UNKNOWN:
+      en: "We could not find {name}'s helpline on its official website right now."
+      hi: "अभी {name} की आधिकारिक वेबसाइट पर हेल्पलाइन नंबर नहीं मिला।"
+    NOT_LISTED:
+      en: "\"{name}\" is not in our list of official sources, so it was not checked online."
+      hi: "\"{name}\" हमारी आधिकारिक स्रोतों की सूची में नहीं है, इसलिए इसकी ऑनलाइन जाँच नहीं की गई।"
+  advisory:
+    ADVISORY_FOUND:
+      en: "Official warnings about this kind of call:"
+      hi: "इस तरह की कॉल के बारे में सरकारी चेतावनियाँ:"
+    UNKNOWN:
+      en: "No official warning about this kind of call was found right now."
+      hi: "अभी इस तरह की कॉल के बारे में कोई सरकारी चेतावनी नहीं मिली।"
+  reports:
+    REPORTS_FOUND:
+      en: "Some web pages mention this {kind} together with fraud or scam. This is a weak signal; open the links to judge."
+      hi: "कुछ वेब पेजों पर इस {kind} के साथ धोखाधड़ी या स्कैम का ज़िक्र है। यह कमज़ोर संकेत है; लिंक खोलकर देखें।"
+    NO_REPORTS_FOUND:
+      en: "No public reports found for this {kind}. No reports found is NOT proof it's safe."
+      hi: "इस {kind} के बारे में कोई सार्वजनिक शिकायत नहीं मिली। शिकायत न मिलना इस बात का सबूत नहीं है कि यह सुरक्षित है।"
+  UNAVAILABLE:
+    en: "Online check unavailable right now. Nothing was assumed."
+    hi: "ऑनलाइन जाँच अभी उपलब्ध नहीं है। कुछ भी मानकर नहीं चला गया।"
+  reason_mismatch:
+    en: "The caller's number is not on {name}'s official website"
+    hi: "कॉल करने वाले का नंबर {name} की आधिकारिक वेबसाइट पर नहीं है"
+  reason_reports:
+    en: "The web has fraud reports mentioning this {kind}"
+    hi: "इंटरनेट पर इस {kind} से जुड़ी धोखाधड़ी की शिकायतें हैं"
+
+# Manual "Check this caller" next steps. `report` is always last.
+next_steps:
+  mismatch:
+    en: "Hang up. Call {name} yourself on {official}."
+    hi: "फ़ोन काटें। {name} को खुद {official} पर कॉल करें।"
+  otp:
+    en: "Never share an OTP, PIN or password with anyone who calls you."
+    hi: "फ़ोन करने वाले किसी को भी ओटीपी, पिन या पासवर्ड न बताएँ।"
+  money:
+    en: "Do not send money. Real officials never ask for payment on a call."
+    hi: "पैसे न भेजें। असली अधिकारी कभी कॉल पर पैसे नहीं माँगते।"
+  video_call:
+    en: "There is no 'digital arrest' in Indian law. Police never arrest anyone on a video call."
+    hi: "भारतीय कानून में 'डिजिटल अरेस्ट' जैसा कुछ नहीं है। पुलिस वीडियो कॉल पर किसी को गिरफ़्तार नहीं करती।"
+  alone:
+    en: "Tell a family member right now. Scammers want you alone and silent."
+    hi: "अभी परिवार के किसी सदस्य को बताएँ। धोखेबाज़ चाहते हैं कि आप अकेले और चुप रहें।"
+  install_app:
+    en: "Do not install any app a caller asks for. If you already did, uninstall it and call your bank."
+    hi: "कॉल करने वाले के कहने पर कोई ऐप इंस्टॉल न करें। कर लिया हो तो उसे हटाएँ और अपने बैंक को कॉल करें।"
+  general:
+    en: "If anything feels wrong, hang up and call the organisation's official number yourself."
+    hi: "कुछ भी गलत लगे तो फ़ोन काटें और संस्था के आधिकारिक नंबर पर खुद कॉल करें।"
+  report:
+    en: "Report at cybercrime.gov.in or call 1930."
+    hi: "cybercrime.gov.in पर शिकायत करें या 1930 पर कॉल करें।"

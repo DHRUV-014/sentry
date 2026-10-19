@@ -63,6 +63,9 @@ class FusionConfig:
     stages: dict[str, int]
     max_reasons: int
     chain_reason_min_stages: int
+    verification_weights: dict[str, float]
+    cap_margin: float
+    min_tactics_for_high: int
 
     @classmethod
     def load(cls) -> FusionConfig:
@@ -76,6 +79,9 @@ class FusionConfig:
             stages=dict(w["coercion"]["stages"]),
             max_reasons=int(f["max_reasons"]),
             chain_reason_min_stages=int(f["chain_reason_min_stages"]),
+            verification_weights={k: float(v) for k, v in f["verification"].items()},
+            cap_margin=float(w["coercion"]["cap_margin"]),
+            min_tactics_for_high=int(w["coercion"]["min_tactics_for_high"]),
         )
 
     def lower(self, level: Level) -> float:
@@ -184,3 +190,27 @@ class CallRisk:
             top_reasons=self._reasons(coercion, claims),
             signals={"coercion": coercion.mode, **signal_status},
         )
+
+
+def apply_verification(
+    score: float, tactic_count: int, verdicts: list[str], cfg: FusionConfig
+) -> tuple[float, list[Contribution], bool]:
+    """Combine a coercion score with verification verdicts (noisy-OR).
+
+    Returns (score, contributions, capped). Verification can never be what reaches HIGH: unless the
+    tactic evidence on its own could reach HIGH (at least `min_tactics_for_high` tactics), the
+    result is capped just below the HIGH threshold.
+    """
+    weights = [cfg.verification_weights[v] for v in verdicts if v in cfg.verification_weights]
+    contributions = [
+        Contribution(signal=f"verify.{v}", value=1.0, weight=cfg.verification_weights[v])
+        for v in sorted(set(verdicts))
+        if v in cfg.verification_weights
+    ]
+    combined = score
+    for w in weights:
+        combined = 1 - (1 - combined) * (1 - w)
+    capped = False
+    if tactic_count < cfg.min_tactics_for_high and combined >= cfg.levels.high:
+        combined, capped = cfg.levels.high - cfg.cap_margin, True
+    return round(min(1.0, combined), 4), contributions, capped

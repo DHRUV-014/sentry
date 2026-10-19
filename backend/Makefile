@@ -2,7 +2,7 @@ PYTHON ?= /opt/homebrew/bin/python3.11
 VENV   := .venv
 BIN    := $(VENV)/bin
 
-.PHONY: setup setup-train run test lint fmt clean test-audio bench-stt stt-report coercion-report demo-wav train-coercion
+.PHONY: setup setup-train run test lint fmt clean test-audio bench-stt stt-report coercion-report demo-wav train-coercion prewarm-verify
 
 setup:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
@@ -37,6 +37,10 @@ coercion-report:
 # Rebuild models/coercion/ from training/coercion/generated (see training/coercion/DATA.md).
 train-coercion:
 	PY=$(BIN)/python training/coercion/rebuild.sh
+
+# Cache real TinyFish results for common institutions (demo works if Wi-Fi drops). Needs the key.
+prewarm-verify:
+	$(BIN)/python -m tools.prewarm_verify
 
 demo-wav:
 	@test -n "$(FILE)" || (echo "usage: make demo-wav FILE=path/to/audio.wav" && exit 1)

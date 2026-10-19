@@ -19,6 +19,12 @@ Training, threshold tuning and model selection never touch it.
 
 `make demo` runs the live /demo page (B4-lite + frontend); see DEMO.md.
 
+## B6-lite (verification)
+
+`/check` page + `POST /verify/manual` + `app/verify/` (TinyFish Search + Fetch per the docs).
+Mocked tests pass; the live smoke test and acceptance need `TINYFISH_API_KEY` in backend/.env.
+Verification is not yet wired into live calls.
+
 ## Done (committed)
 
 | Milestone | Commit | What |

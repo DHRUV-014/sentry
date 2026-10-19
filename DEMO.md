@@ -48,6 +48,32 @@ The page shows:
 - **Why**, the top reasons in English and Hindi with the words that triggered them
 - the **family alert** panel, which appears once, on the first HIGH or CRITICAL
 
+## "Check this caller" (/check)
+
+Open **http://localhost:5173/check** (same `make demo`). The form takes:
+- who the caller claimed to be
+- the bank or office name
+- the number they called from
+- optionally, a UPI ID or link
+- what they asked for
+
+It returns:
+- the risk level
+- numbered next steps
+- the official helpline found on the institution's own website, with a source link
+- government advisories
+- public fraud reports, where "no reports found is NOT proof it's safe"
+
+**Requirements:**
+- `TINYFISH_API_KEY` in `backend/.env`. Without it, verification shows "unavailable" and the
+  advice uses only what was entered.
+- **Before the demo:** `cd backend && make prewarm-verify`. This caches real, sourced helplines
+  for about 12 institutions and the advisories. If Wi-Fi drops, `/check` serves them labelled
+  "cached, fetched at <time>".
+
+Try: **Bank → "HDFC Bank" → any 10-digit number → Tell an OTP + Send money → Check now**. You
+should see a MISMATCH with HDFC's official number and the source page.
+
 ## Scripts
 
 **A single sentence never reaches HIGH, by design.** A call needs pressure across several

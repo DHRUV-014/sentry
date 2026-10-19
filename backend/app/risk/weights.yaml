@@ -83,3 +83,22 @@ fusion:
   max_reasons: 3
   # Show the scam-pattern reason once this many chain stages appeared in order.
   chain_reason_min_stages: 3
+  # Verification evidence (B6), combined with coercion by noisy-OR. Verification alone (no
+  # tactics) is capped below HIGH. A MISMATCH also satisfies the CRITICAL gate.
+  verification:
+    MISMATCH: 0.35
+    REPORTS_FOUND: 0.20
+
+manual_check:
+  # Each thing the person reports the caller asked for counts as one piece of evidence with this
+  # weight (like one utterance carrying that tactic).
+  form_weight: 0.8
+  asked_to:
+    otp: CREDENTIAL
+    money: PAYMENT
+    video_call: ISOLATION
+    secrecy: SECRECY
+    install_app: CREDENTIAL
+    go_alone: ISOLATION
+  # Claimed identities that count as AUTHORITY.
+  authority_identity_types: [bank, police, government, courier, telecom]

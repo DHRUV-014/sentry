@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -79,6 +79,16 @@ class Settings(BaseSettings):
     # Alerts. ELDER_NAME fills "Call <name> now" in family alerts (empty = "Call them now").
     elder_name: str = ""
     alert_send_timeout_s: float = Field(5.0, gt=0)
+
+    # Verification (TinyFish Search + Fetch). No key -> verify is "unconfigured", never faked.
+    tinyfish_api_key: SecretStr | None = None
+    tinyfish_timeout_s: float = Field(8.0, gt=0)
+    tinyfish_search_per_minute: int = Field(30, gt=0)  # documented default account limit
+    tinyfish_fetch_per_minute: int = Field(150, gt=0)  # documented default (URLs/minute)
+    tinyfish_location: str = "IN"
+    verify_cache_ttl_s: float = Field(86400, gt=0)
+    # Overall budget for one manual check (all checks run in parallel).
+    verify_budget_s: float = Field(12.0, gt=0)
 
     llm_enabled: bool = False
 

@@ -54,7 +54,7 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
 | F3 | `/family` dashboard: risk gauge, timeline, tactic chain, live alerts | |
 | F4 | `/ops` judge view: transcript highlights, signal contributions, latency, health, signal toggles | |
 | B5 | Voice anti-spoof model + calibration | |
-| B6 | TinyFish verification (from the pasted official docs) | |
+| B6 | TinyFish verification (from the pasted official docs) | B6-lite done: manual /check + verifier; live-call wiring later |
 | B7 | Eval harness, ablation, learned fusion weights | |
 | B8 | Stage hardening: `make demo`, model warm-up, offline degradation | |
 | B9 | SMS + WhatsApp alert channels via Twilio | last |
@@ -114,7 +114,9 @@ backend/
                          reasons.yaml (English + Hindi reason and alert texts)
   app/alerts/            dispatcher.py (once per call, latency logged), channels.py (dashboard; B9 adds SMS/WhatsApp)
   app/voice/             antispoof.py (interface; model in B5)
-  app/verify/            verifier.py  (interface; TinyFish in B6)
+  app/verify/            tinyfish_client.py (Search + Fetch, httpx, timeout/retry/rate limits),
+                         verifier.py (institution_contact, advisory, public_reports; 24 h SQLite cache),
+                         sources.yaml (official domains, scenario queries), inputs.py, manual.py
   tools/                 stream_wav, make_test_audio, bench_stt, stt_report, wer
   training/coercion/     classifier data + training: DATA.md, generator_instructions.md, prompts/,
                          generated/ (LLM batches), data/ (dataset + STT-noised copy), train/export
@@ -134,6 +136,9 @@ samples/                 local audio (gitignored); samples/synthetic_tts/ = rend
 - `WS /ws/audio/{id}`: binary 20 ms frames, 16 kHz mono int16 (exactly 640 bytes, or whole multiples)
 - `WS /ws/events/{id}`: JSON events. Late subscribers first receive recent events again.
 - `POST /sessions/{id}/end`: drains in-flight transcriptions, then emits `status session ended`
+- `POST /verify/manual`: "Check this caller" form → tactics + TinyFish checks → level, reasons,
+  checks (with sources), next steps (EN/HI, always ending "Report at cybercrime.gov.in or call
+  1930"). 422 on an invalid phone, UPI ID or URL.
 - `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, storage`. Overall
   `degraded` unless the core (`stt, vad, lexicon, classifier, storage`) is ok.
 
@@ -249,5 +254,9 @@ access to it.
 - **Lexicon changes:** run `make coercion-report` before and after, and report both. Fixtures in
   `tests/fixtures/conversations.yaml` informed some B3 lexicon entries, so they're no longer a clean
   held-out set. Keep new held-out conversations separate (B7).
+- **TinyFish:** only what docs.tinyfish.ai documents (Search `GET api.search.tinyfish.ai`, Fetch
+  `POST api.fetch.tinyfish.ai`, `X-API-Key`). It receives only a listed institution name, phone,
+  UPI ID or URL: never personal names, message text, transcripts or the elder's details.
+  Verification alone can never reach HIGH.
 - To stop a server you started, use `kill $(lsof -tnP -iTCP:8000 -sTCP:LISTEN)`. `pkill -f "python -m app"`
   misses it, because macOS reports the process as `Python`.

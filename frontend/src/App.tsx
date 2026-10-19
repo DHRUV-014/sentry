@@ -1,4 +1,5 @@
 import { useCallback, useReducer, useRef, useState } from "react";
+import Check from "./Check";
 import { AlertPanel, HealthStrip, RiskChart, RiskMeter, TacticChain, Transcript, WhyPanel } from "./components/Panels";
 import { startMic, streamFile, type Source } from "./lib/audio";
 import { CallSession } from "./lib/session";
@@ -7,14 +8,14 @@ import { initialState, reduce } from "./lib/state";
 type Phase = "idle" | "starting" | "live" | "ending";
 
 export default function App() {
-  if (location.pathname !== "/demo") {
-    return (
-      <main className="p-10 text-3xl">
-        <a className="underline" href="/demo">Open the Scam Shield demo →</a>
-      </main>
-    );
-  }
-  return <Demo />;
+  if (location.pathname === "/demo") return <Demo />;
+  if (location.pathname === "/check") return <Check />;
+  return (
+    <main className="space-y-4 p-10 text-3xl">
+      <a className="block underline" href="/demo">Live call demo →</a>
+      <a className="block underline" href="/check">Check this caller →</a>
+    </main>
+  );
 }
 
 function Demo() {

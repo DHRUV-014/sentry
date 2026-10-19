@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
+import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.alerts.channels import DashboardChannel
@@ -24,7 +25,9 @@ from app.events import ComponentStatus, EventBus
 from app.pipeline import CallPipeline
 from app.session import SessionManager
 from app.storage import Storage
-from app.verify.verifier import UnavailableVerifier
+from app.verify.manual import ManualCheckRequest, ManualCheckResponse, run_manual_check
+from app.verify.tinyfish_client import TinyFishClient, TinyFishUnavailable
+from app.verify.verifier import Verifier
 from app.voice.antispoof import UnavailableAntiSpoof
 
 log = logging.getLogger("scamshield")
@@ -38,7 +41,6 @@ def _init_component_status(settings: Settings, components: ComponentRegistry) ->
     else:
         components.set("llm", ComponentStatus.DISABLED, "LLM_ENABLED=false")
     components.set("voice", *UnavailableAntiSpoof().status())
-    components.set("verify", *UnavailableVerifier().status())
     components.set("alerts", ComponentStatus.OK, "dashboard channel (SMS/WhatsApp in B9)")
 
 
@@ -79,6 +81,7 @@ def create_app(
     settings: Settings | None = None,
     stt: STTProvider | None = None,
     vad_classifier: VadClassifier | None = None,
+    tinyfish_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Build the app. `stt` and `vad_classifier` can be injected (tests); defaults are real models."""
     settings = settings or get_settings()
@@ -163,6 +166,30 @@ def create_app(
                 ),
             )
 
+        key = settings.tinyfish_api_key.get_secret_value() if settings.tinyfish_api_key else None
+        tinyfish = TinyFishClient(
+            key,
+            timeout_s=settings.tinyfish_timeout_s,
+            search_per_minute=settings.tinyfish_search_per_minute,
+            fetch_per_minute=settings.tinyfish_fetch_per_minute,
+            location=settings.tinyfish_location,
+            transport=tinyfish_transport,
+        )
+        verifier = Verifier(tinyfish, storage, settings.verify_cache_ttl_s)
+        components.set("verify", *verifier.status())
+
+        async def probe_tinyfish() -> None:
+            # One documented Search call so /health reports TinyFish's real state, not a guess.
+            with suppress(TinyFishUnavailable):
+                await tinyfish.search("Reserve Bank of India", include_domains=["rbi.org.in"])
+            components.set("verify", *verifier.status())
+
+        probe_task = (
+            asyncio.create_task(probe_tinyfish(), name="tinyfish-probe")
+            if tinyfish.configured
+            else None
+        )
+
         sessions = SessionManager(settings, storage, components, pipeline_factory=make_pipeline)
         await sessions.start()
         app.state.settings = settings
@@ -171,10 +198,16 @@ def create_app(
         app.state.sessions = sessions
         app.state.stt = stt_provider
         app.state.stt_loading = stt_task is not None
+        app.state.engine = engine
+        app.state.extractor = extractor
+        app.state.verifier = verifier
         try:
             yield
         finally:
             await sessions.stop()
+            if probe_task is not None:
+                probe_task.cancel()
+            await tinyfish.close()
             if model_tagger is not None:
                 model_tagger.close()
             if stt_task is not None:
@@ -201,6 +234,21 @@ def create_app(
                 for name, state in components.snapshot().items()
             },
         }
+
+    @app.post("/verify/manual", response_model=ManualCheckResponse)
+    async def verify_manual(req: ManualCheckRequest) -> ManualCheckResponse:
+        if app.state.engine is None or app.state.extractor is None:
+            raise HTTPException(status_code=503, detail="coercion engine unavailable")
+        verifier: Verifier = app.state.verifier
+        result = await run_manual_check(
+            req,
+            app.state.engine,
+            app.state.extractor,
+            verifier if verifier.client.configured else None,
+            settings.verify_budget_s,
+        )
+        app.state.components.set("verify", *verifier.status())
+        return result
 
     @app.post("/sessions", status_code=201)
     async def create_session() -> dict:

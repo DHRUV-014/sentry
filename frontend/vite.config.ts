@@ -12,6 +12,7 @@ export default defineConfig({
     proxy: {
       "/sessions": backend,
       "/health": backend,
+      "/verify": backend,
       "/ws": { target: backend.replace(/^http/, "ws"), ws: true },
     },
   },

@@ -94,7 +94,7 @@ class CoercionResult(BaseModel):
     protective_strength: float
     caps_applied: list[str]
     contributions: list[Contribution]
-    mode: str  # model | lexicon_fallback
+    mode: str  # model | lexicon_fallback | evidence (non-speech evidence, e.g. a form)
     model_probs: dict[str, float] | None  # classifier probabilities (after any lexicon boost)
     model_status: str
     llm_status: str
@@ -183,6 +183,33 @@ class CallCoercion:
         counted = [*counted, *llm_hits]
         shown += [(h, True) for h in llm_hits]
 
+        return self._result(
+            utterance_id, t_s, shown, counted, mode, model_probs, model_status, llm_status,
+            verification_mismatch,
+        )  # fmt: skip
+
+    async def add_evidence(
+        self, utterance_id: str, t_s: float, hits: list[Hit], verification_mismatch: bool = False
+    ) -> CoercionResult:
+        """Count evidence that didn't come from speech (e.g. what a person reports on a form)."""
+        return self._result(
+            utterance_id, t_s, [(h, True) for h in hits], hits, "evidence", None,
+            "disabled", "disabled", verification_mismatch,
+        )  # fmt: skip
+
+    def _result(
+        self,
+        utterance_id: str,
+        t_s: float,
+        shown: list[tuple[Hit, bool]],
+        counted: list[Hit],
+        mode: str,
+        model_probs: dict[str, float] | None,
+        model_status: str,
+        llm_status: str,
+        verification_mismatch: bool,
+    ) -> CoercionResult:
+        engine = self._engine
         snap = self._tracker.update(utterance_id, t_s, counted, verification_mismatch)
         return CoercionResult(
             utterance_id=utterance_id,
