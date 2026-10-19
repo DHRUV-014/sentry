@@ -47,12 +47,45 @@ def test_utterance_ends_after_silence_with_preroll_and_trimmed_tail():
     assert len(u.pcm) == u.end_sample - u.start_sample
 
 
-def test_long_speech_is_cut_at_max_length_and_continues():
-    seg = VadSegmenter(CFG, is_speech)
-    utts = run(seg, [SPEECH] * 600 + [SILENCE] * 30)  # 12 s of speech
-    assert [u.end_reason for u in utts] == ["max_length", "silence"]
+LONG = VadConfig(
+    start_speech_ms=60,
+    end_silence_ms=600,
+    max_utterance_ms=6000,
+    preroll_ms=0,
+    min_speech_ms=300,
+    soft_max_ms=4000,
+    soft_pause_ms=60,
+)
+QUIET_SPEECH = b"\x01" + b"\x00" * (FRAME_BYTES - 1)  # flagged speech, almost no energy
+
+
+def test_long_speech_splits_at_first_word_gap_after_soft_limit():
+    seg = VadSegmenter(LONG, is_speech)
+    gap_at = 250  # 5 s of speech, then an 80 ms gap between words
+    utts = run(seg, [SPEECH] * gap_at + [SILENCE] * 4 + [SPEECH] * 100 + [SILENCE] * 40)
+    assert [u.end_reason for u in utts] == ["pause", "silence"]
     assert utts[0].end_sample == utts[1].start_sample
-    assert (utts[0].end_sample - utts[0].start_sample) / 16000 == pytest.approx(8.0)
+    # cut inside the gap (after 3 silent frames), never mid-word
+    assert utts[0].end_sample == (gap_at + 3) * 320
+
+
+def test_no_gap_cuts_at_quietest_frame_before_hard_limit():
+    seg = VadSegmenter(LONG, is_speech)
+    quiet_at = 250  # between the 4 s soft and 6 s hard limits
+    frames = [SPEECH] * quiet_at + [QUIET_SPEECH] + [SPEECH] * 149 + [SILENCE] * 40
+    utts = run(seg, frames)
+    assert [u.end_reason for u in utts] == ["max_length", "silence"]
+    assert utts[0].end_sample == quiet_at * 320  # cut right before the quiet frame
+    assert utts[0].end_sample == utts[1].start_sample  # nothing lost
+    assert (utts[1].end_sample - utts[0].start_sample) >= 400 * 320
+
+
+def test_hard_limit_never_exceeded():
+    seg = VadSegmenter(LONG, is_speech)
+    utts = run(seg, [SPEECH] * 1000 + [SILENCE] * 40)
+    assert all((u.end_sample - u.start_sample) / 16000 <= 6.0 for u in utts)
+    assert all(a.end_sample == b.start_sample for a, b in zip(utts, utts[1:], strict=False))
+    assert utts[0].start_sample == 0 and utts[-1].end_sample >= 1000 * 320  # no speech lost
 
 
 def test_short_blips_are_discarded_and_flush_emits_open_utterance():

@@ -67,7 +67,7 @@ async def score_call(engine: CoercionEngine, extractor: EntityExtractor, call: d
     analyzer = CallAnalyzer(engine, extractor)
     trajectory, last, claims = [], None, []
     for i, text in enumerate(call["utterances"]):
-        coercion, entities = await analyzer.analyze(f"u{i + 1}", float(i), text)
+        coercion, entities, _ = await analyzer.analyze(f"u{i + 1}", float(i), text)
         trajectory.append(coercion)
         last = coercion
         if entities:

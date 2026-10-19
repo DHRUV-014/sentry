@@ -39,6 +39,14 @@ CREATE TABLE IF NOT EXISTS alerts (
     latency_ms  REAL,
     error       TEXT
 );
+CREATE TABLE IF NOT EXISTS contacts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    phone_e164  TEXT NOT NULL,
+    opted_in    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    revoked_at  TEXT
+);
 """
 
 
@@ -119,3 +127,63 @@ class Storage:
             {"seq": seq, "ts": ts, "type": type_, "payload": json.loads(payload)}
             for seq, ts, type_, payload in rows
         ]
+
+    async def save_alert(
+        self,
+        session_id: str,
+        level: str,
+        delivered: bool,
+        latency_ms: float,
+        error: str | None,
+    ) -> None:
+        if self._db is None:
+            return
+        await self._db.execute(
+            "INSERT INTO alerts (session_id, ts, level, delivered, latency_ms, error)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, datetime.now(UTC).isoformat(), level, int(delivered), latency_ms, error),
+        )
+        await self._db.commit()
+
+    async def alerts(self, session_id: str) -> list[dict[str, Any]]:
+        if self._db is None:
+            return []
+        cursor = await self._db.execute(
+            "SELECT level, delivered, latency_ms, error FROM alerts WHERE session_id = ?",
+            (session_id,),
+        )
+        return [
+            {"level": lv, "delivered": bool(d), "latency_ms": ms, "error": e}
+            for lv, d, ms, e in await cursor.fetchall()
+        ]
+
+    async def add_contact(self, name: str, phone_e164: str, opted_in: bool) -> int:
+        if self._db is None:
+            raise RuntimeError("storage unavailable")
+        cursor = await self._db.execute(
+            "INSERT INTO contacts (name, phone_e164, opted_in, created_at) VALUES (?, ?, ?, ?)",
+            (name, phone_e164, int(opted_in), datetime.now(UTC).isoformat()),
+        )
+        await self._db.commit()
+        return int(cursor.lastrowid)
+
+    async def revoke_contact(self, contact_id: int) -> None:
+        if self._db is None:
+            return
+        await self._db.execute(
+            "UPDATE contacts SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+            (datetime.now(UTC).isoformat(), contact_id),
+        )
+        await self._db.commit()
+
+    async def active_contacts(self) -> list:
+        """Opted-in, non-revoked contacts (alert recipients)."""
+        from app.alerts.dispatcher import Contact
+
+        if self._db is None:
+            return []
+        cursor = await self._db.execute(
+            "SELECT id, name, phone_e164 FROM contacts WHERE opted_in = 1 AND revoked_at IS NULL"
+            " ORDER BY id"
+        )
+        return [Contact(i, n, p) for i, n, p in await cursor.fetchall()]

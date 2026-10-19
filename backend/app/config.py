@@ -34,7 +34,11 @@ class Settings(BaseSettings):
     vad_aggressiveness: int = Field(2, ge=0, le=3)
     vad_start_speech_ms: int = Field(40, gt=0)
     vad_end_silence_ms: int = Field(600, gt=0)
-    vad_max_utterance_ms: int = Field(8000, gt=0)
+    # Long speech: split at the first word gap after the soft limit, else at the quietest frame
+    # before the hard limit (the old fixed 8 s cut split words and changed Whisper's output).
+    vad_soft_max_ms: int = Field(8000, gt=0)
+    vad_soft_pause_ms: int = Field(60, gt=0)
+    vad_max_utterance_ms: int = Field(12000, gt=0)
     vad_preroll_ms: int = Field(300, ge=0)
     vad_min_speech_ms: int = Field(300, ge=0)
 
@@ -71,6 +75,10 @@ class Settings(BaseSettings):
     coercion_model_dir: Path = Path("models/coercion")
     coercion_model_threads: int = Field(1, gt=0)
     coercion_model_timeout_s: float = Field(1.0, gt=0)
+
+    # Alerts. ELDER_NAME fills "Call <name> now" in family alerts (empty = "Call them now").
+    elder_name: str = ""
+    alert_send_timeout_s: float = Field(5.0, gt=0)
 
     llm_enabled: bool = False
 

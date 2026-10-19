@@ -1,8 +1,12 @@
 """Utterance segmentation from 20 ms frames.
 
 An utterance starts after `start_speech_ms` of consecutive speech (plus `preroll_ms` of lead-in so
-first syllables aren't clipped). It ends after `end_silence_ms` of silence, or is cut at
-`max_utterance_ms`. Utterances with less than `min_speech_ms` of speech are discarded as noise.
+first syllables aren't clipped). It ends after `end_silence_ms` of silence. Long speech is split
+without cutting words where possible:
+  - after `soft_max_ms`, at the first pause of `soft_pause_ms` (a gap between words);
+  - at `max_utterance_ms` (hard limit), at the quietest frame after `soft_max_ms`; the audio after
+    that point starts the next utterance.
+Utterances with less than `min_speech_ms` of speech are discarded as noise.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ import numpy as np
 from app.audio.buffer import FRAME_BYTES, FRAME_MS, FRAME_SAMPLES, SAMPLE_RATE
 from app.config import Settings
 
-EndReason = Literal["silence", "max_length", "flush"]
+EndReason = Literal["silence", "pause", "max_length", "flush"]
 
 # Silence kept at the end of an utterance; the rest of the end-of-speech silence is trimmed.
 TAIL_KEEP_MS = 100
@@ -30,6 +34,8 @@ class VadConfig:
     max_utterance_ms: int
     preroll_ms: int
     min_speech_ms: int
+    soft_max_ms: int = 8000
+    soft_pause_ms: int = 60
 
     @classmethod
     def from_settings(cls, s: Settings) -> VadConfig:
@@ -39,6 +45,8 @@ class VadConfig:
             max_utterance_ms=s.vad_max_utterance_ms,
             preroll_ms=s.vad_preroll_ms,
             min_speech_ms=s.vad_min_speech_ms,
+            soft_max_ms=s.vad_soft_max_ms,
+            soft_pause_ms=s.vad_soft_pause_ms,
         )
 
 
@@ -85,6 +93,8 @@ class VadSegmenter:
         self._start_frames = _frames(config.start_speech_ms)
         self._end_frames = _frames(config.end_silence_ms)
         self._max_frames = _frames(config.max_utterance_ms)
+        self._soft_frames = min(self._max_frames, _frames(config.soft_max_ms))
+        self._pause_frames = _frames(config.soft_pause_ms)
         self._min_speech_frames = config.min_speech_ms // FRAME_MS
         self._tail_keep = TAIL_KEEP_MS // FRAME_MS
         self._preroll: deque[bytes] = deque(
@@ -94,6 +104,7 @@ class VadSegmenter:
         self._consecutive = 0
         self._in_speech = False
         self._frames_buf: list[bytes] = []
+        self._flags: list[bool] = []  # speech flag per buffered frame
         self._start_frame = 0
         self._speech_frames = 0
         self._trailing_silence = 0
@@ -110,6 +121,7 @@ class VadSegmenter:
             if self._consecutive >= self._start_frames:
                 self._in_speech = True
                 self._frames_buf = list(self._preroll)
+                self._flags = [True] * len(self._frames_buf)
                 self._start_frame = self._frame_index - len(self._frames_buf)
                 self._speech_frames = self._consecutive
                 self._trailing_silence = 0
@@ -118,6 +130,7 @@ class VadSegmenter:
             return None
 
         self._frames_buf.append(frame)
+        self._flags.append(speech)
         if speech:
             self._speech_frames += 1
             self._trailing_silence = 0
@@ -127,9 +140,41 @@ class VadSegmenter:
         if self._trailing_silence >= self._end_frames:
             trim = max(0, self._trailing_silence - self._tail_keep)
             return self._finish("silence", trim=trim, keep_speaking=False)
-        if len(self._frames_buf) >= self._max_frames:
-            return self._finish("max_length", trim=0, keep_speaking=True)
+        n = len(self._frames_buf)
+        if (
+            n >= self._soft_frames
+            and self._trailing_silence > 0
+            and (self._trailing_silence >= self._pause_frames)
+        ):
+            return self._split(n, "pause")
+        if n >= self._max_frames:
+            return self._split(self._quietest_cut(), "max_length")
         return None
+
+    def _quietest_cut(self) -> int:
+        """Index of the lowest-energy frame after the soft limit (the cut goes before it)."""
+        window = self._frames_buf[self._soft_frames :]
+        energy = [
+            float(np.mean(np.frombuffer(f, dtype=np.int16).astype(np.float32) ** 2)) for f in window
+        ]
+        return self._soft_frames + int(np.argmin(energy)) if energy else len(self._frames_buf)
+
+    def _split(self, cut: int, reason: EndReason) -> Segment | None:
+        """Emit frames[:cut]; frames[cut:] start the next utterance (speech continues)."""
+        rest, rest_flags = self._frames_buf[cut:], self._flags[cut:]
+        self._frames_buf, self._flags = self._frames_buf[:cut], self._flags[:cut]
+        self._speech_frames = sum(self._flags)
+        segment = self._finish(reason, trim=0, keep_speaking=True)
+        self._frames_buf, self._flags = rest, rest_flags
+        self._start_frame = self._frame_index - len(rest)
+        self._speech_frames = sum(rest_flags)
+        trailing = 0
+        for flag in reversed(rest_flags):
+            if flag:
+                break
+            trailing += 1
+        self._trailing_silence = trailing
+        return segment
 
     def flush(self) -> Segment | None:
         if not self._in_speech:
@@ -143,13 +188,13 @@ class VadSegmenter:
 
         if keep_speaking:
             # Forced cut mid-speech: the next utterance continues from the next frame.
-            self._frames_buf = []
+            self._frames_buf, self._flags = [], []
             self._start_frame = self._frame_index
             self._speech_frames = 0
             self._trailing_silence = 0
         else:
             self._in_speech = False
-            self._frames_buf = []
+            self._frames_buf, self._flags = [], []
             self._consecutive = 0
 
         if speech_frames < self._min_speech_frames or not frames:

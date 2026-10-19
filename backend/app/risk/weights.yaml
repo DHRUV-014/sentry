@@ -5,6 +5,8 @@ levels:
   medium: 0.30
   high: 0.55
   critical: 0.80
+  # A level only drops once the score is this far below its lower threshold (no flicker).
+  hysteresis: 0.05
 
 coercion:
   # Weight of each tactic's strength in the combined score (noisy-OR across tactics).
@@ -36,6 +38,8 @@ coercion:
   # by up to this fraction. Capped so a scammer can't talk the score down by reciting advice.
   protective_max_reduction: 0.30
 
+  # Evidence age weighting: an utterance's tactic evidence halves every this many seconds.
+  decay_half_life_s: 90
   # Rule caps (applied after scoring):
   # a single keyword / single utterance can never reach HIGH
   min_tactics_for_high: 2
@@ -70,3 +74,12 @@ model_tagger:
   # the classifier already scores it >= lexicon_boost_gate (tuned on val by
   # training/coercion/tune_boost.py and stored in models/coercion/model.json; null = off).
   lexicon_boost: 0.10
+
+fusion:
+  # B4-lite: coercion is the only live signal; voice (B5) and verification (B6) join here with
+  # their own weights, and B7 learns them. A missing signal is reported, never guessed.
+  signal_weights:
+    coercion: 1.0
+  max_reasons: 3
+  # Show the scam-pattern reason once this many chain stages appeared in order.
+  chain_reason_min_stages: 3

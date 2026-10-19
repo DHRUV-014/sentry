@@ -1,6 +1,7 @@
 """Per-call audio pipeline.
 
-frames -> ring buffer -> VAD -> STT worker -> utterance event -> text analysis (coercion, entities)
+frames -> ring buffer -> VAD -> STT worker -> utterance event -> text analysis (coercion, entities,
+risk) -> alert dispatcher (first HIGH/CRITICAL)
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel
 
+from app.alerts.dispatcher import CallAlerts
 from app.analysis import CallAnalyzer
 from app.audio.buffer import FRAME_BYTES, RingBuffer
 from app.audio.stt import STTProvider, STTUnavailable
@@ -59,9 +61,11 @@ class CallPipeline:
         segmenter: VadSegmenter,
         components: ComponentRegistry,
         analyzer: CallAnalyzer | None = None,
+        alerts: CallAlerts | None = None,
     ) -> None:
         self.session_id = session_id
         self._analyzer = analyzer
+        self._alerts = alerts
         self._bus = bus
         self._settings = settings
         self._stt = stt
@@ -176,9 +180,10 @@ class CallPipeline:
     async def _analyze(self, utterance: UtterancePayload) -> None:
         if self._analyzer is None or not utterance.text:
             return
+        signals = {name: self._components.get(name).status.value for name in ("voice", "verify")}
         try:
-            coercion, entities = await self._analyzer.analyze(
-                utterance.utterance_id, utterance.t_start_s, utterance.text
+            coercion, entities, risk = await self._analyzer.analyze(
+                utterance.utterance_id, utterance.t_start_s, utterance.text, signals
             )
         except Exception:
             log.exception("text analysis failed for %s", utterance.utterance_id)
@@ -187,6 +192,12 @@ class CallPipeline:
         await self._bus.publish(EventType.COERCION, coercion)
         if entities is not None:
             await self._bus.publish(EventType.ENTITIES, entities)
+        await self._bus.publish(EventType.RISK, risk)
+        if self._alerts is not None:
+            try:
+                await self._alerts.on_risk(risk, self._analyzer.claims, signals["verify"])
+            except Exception:
+                log.exception("alert dispatch failed for %s", utterance.utterance_id)
 
     def _payload(self, segment: Segment, status: SttStatus, detail: str = "") -> UtterancePayload:
         self._utterance_count += 1

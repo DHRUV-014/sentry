@@ -182,7 +182,7 @@ criterion.
 
 1. **Wait for "training frozen".** Then evaluate the shipped model and the lexicon on
    `eval/human/`.
-2. Decide on the noisy-copy fix: run clips through VadSegmenter offline, then regenerate and
-   retrain (the streaming check failed).
+2. **Later improvement (deferred for the demo, user decision):** make the noisy copy match live
+   segmentation (VadSegmenter offline), regenerate, retrain. The current e5-small model stays.
 3. Decide how to close the recall gaps: the lexicon caught the two call-level misses, but it can't
    count in model mode.

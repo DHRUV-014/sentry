@@ -1,0 +1,55 @@
+# Plain-language reasons shown to the elder and the family (English + Hindi). They describe
+# tactics, never specific calls. {institution} and {stages} are filled from the call's evidence.
+
+tactics:
+  AUTHORITY:
+    en: "The caller claims to be an official"
+    hi: "कॉल करने वाला खुद को अधिकारी बता रहा है"
+  AUTHORITY_INSTITUTION:
+    en: "The caller claims to be from {institution}"
+    hi: "कॉल करने वाला खुद को {institution} से बता रहा है"
+  THREAT:
+    en: "The caller is threatening arrest, penalties or harm"
+    hi: "कॉल करने वाला गिरफ़्तारी, जुर्माने या नुकसान की धमकी दे रहा है"
+  URGENCY:
+    en: "The caller is rushing you to act right now"
+    hi: "कॉल करने वाला तुरंत कुछ करने का दबाव डाल रहा है"
+  SECRECY:
+    en: "The caller wants you to hide this from family or the bank"
+    hi: "कॉल करने वाला चाहता है कि आप यह बात परिवार या बैंक से छिपाएँ"
+  ISOLATION:
+    en: "The caller wants to keep you on the line, cut off from others"
+    hi: "कॉल करने वाला आपको लाइन पर रोककर दूसरों से अलग रखना चाहता है"
+  PAYMENT:
+    en: "The caller is asking you to send money"
+    hi: "कॉल करने वाला आपसे पैसे भेजने को कह रहा है"
+  CREDENTIAL:
+    en: "The caller is asking for an OTP, PIN or bank details"
+    hi: "कॉल करने वाला ओटीपी, पिन या बैंक की जानकारी माँग रहा है"
+
+chain:
+  # Shown when the call has gone through 3+ stages of the scam pattern in order.
+  en: "This call follows a known scam pattern: {stages}"
+  hi: "यह कॉल धोखाधड़ी के जाने-पहचाने तरीके पर चल रही है: {stages}"
+
+stage_names:
+  1: {en: "official claim", hi: "अधिकारी होने का दावा"}
+  2: {en: "threat or pressure", hi: "धमकी या दबाव"}
+  3: {en: "secrecy", hi: "गोपनीयता"}
+  4: {en: "money or OTP demand", hi: "पैसे या ओटीपी की माँग"}
+
+alert:
+  title:
+    HIGH:
+      en: "Possible scam call in progress"
+      hi: "शायद धोखाधड़ी वाली कॉल चल रही है"
+    CRITICAL:
+      en: "Scam call in progress: money or OTP is being demanded"
+      hi: "धोखाधड़ी वाली कॉल चल रही है: पैसे या ओटीपी माँगे जा रहे हैं"
+  # Used with ELDER_NAME set; otherwise action_default.
+  action:
+    en: "Call {name} now"
+    hi: "{name} को अभी फ़ोन करें"
+  action_default:
+    en: "Call them now"
+    hi: "उन्हें अभी फ़ोन करें"

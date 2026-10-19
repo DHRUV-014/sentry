@@ -48,7 +48,7 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
 | B2.1 | Never translate, Hindi fallback, warm-up gate, shared text normalization, prompt experiment | ✅ done |
 | B3 | Coercion engine (lexicon + sequence) + entity extraction | ✅ done |
 | B3.5 | Train our coercion classifier | trained (e5-small); held-out eval pending "training frozen" |
-| B4 | Risk fusion + alert dispatcher with the **dashboard** alert channel | |
+| B4 | Risk fusion + alert dispatcher with the **dashboard** alert channel | B4-lite done (contacts API in B9) |
 | F1 | WebRTC call `/caller` ↔ `/elder` streaming to the backend | |
 | F2 | `/elder` live risk banner + full-screen warning (English + Hindi) | |
 | F3 | `/family` dashboard: risk gauge, timeline, tactic chain, live alerts | |
@@ -110,8 +110,9 @@ backend/
   app/coercion/          lexicon.yaml, lexicon.py (fuzzy matcher), sequence.py (chain + caps), engine.py,
                          model_tagger.py (trained tactic classifier, ONNX int8)
   app/entities/          extract.py, institutions.yaml (gazetteer + UPI handles)
-  app/risk/              weights.yaml (levels, coercion scoring, matching), levels.py; fusion.py (B4)
-  app/alerts/            dispatcher.py, channels (dashboard; sms/whatsapp in B9) (B4)
+  app/risk/              weights.yaml (levels, coercion, matching, fusion), levels.py, fusion.py,
+                         reasons.yaml (English + Hindi reason and alert texts)
+  app/alerts/            dispatcher.py (once per call, latency logged), channels.py (dashboard; B9 adds SMS/WhatsApp)
   app/voice/             antispoof.py (interface; model in B5)
   app/verify/            verifier.py  (interface; TinyFish in B6)
   tools/                 stream_wav, make_test_audio, bench_stt, stt_report, wer
@@ -165,7 +166,20 @@ Every event uses the envelope `{v, type, session_id, seq, ts, payload}`.
 - **`entities`** (when an utterance contains any):
   - `entities[]`: `{kind: phone|upi|url|case_id|institution, value, raw, detail}`
   - `claims_so_far[]`: every distinct claim in the call so far.
-- **`risk`, `alert`:** B4.
+- **`risk`** (after every analysed utterance): `utterance_id`, `t_s`, `score`, `level`,
+  `previous_level`, `level_changed`, `contributions[]` (`risk.coercion` plus the coercion ones),
+  `top_reasons[]` (`{code, en, hi, evidence_text, utterance_id, weight}`; `code` is a tactic or
+  `CHAIN`), `signals` (`coercion`: `model | lexicon_fallback`; `voice`, `verify`: their live
+  component status).
+- **`alert`** (once per call, on the first HIGH/CRITICAL): `alert_id`, `utterance_id`, `level`,
+  `score`, `title{en,hi}`, `top_reasons`, `claims[]`, `verified_official_number` (null until B6),
+  `verification_status`, `action{en,hi}` ("Call <ELDER_NAME> now"), `contacts[]`.
+- **Evidence decay:** tactic evidence halves every `coercion.decay_half_life_s` (90 s).
+  **Hysteresis:** a level drops only once the score is `levels.hysteresis` (0.05) below its
+  threshold.
+- **VAD long speech:** split at the first word gap after `VAD_SOFT_MAX_MS` (8 s), else at the
+  quietest frame before `VAD_MAX_UTTERANCE_MS` (12 s); `end_reason` is `silence | pause |
+  max_length | flush`.
 
 ## STT facts that shape later milestones (B2 benchmark, Apple M3, synthetic TTS)
 

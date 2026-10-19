@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
+from app.alerts.channels import DashboardChannel
+from app.alerts.dispatcher import CallAlerts
 from app.analysis import CallAnalyzer
 from app.audio.buffer import FRAME_BYTES
 from app.audio.stt import FasterWhisperProvider, STTProvider
@@ -37,7 +39,7 @@ def _init_component_status(settings: Settings, components: ComponentRegistry) ->
         components.set("llm", ComponentStatus.DISABLED, "LLM_ENABLED=false")
     components.set("voice", *UnavailableAntiSpoof().status())
     components.set("verify", *UnavailableVerifier().status())
-    components.set("alerts", ComponentStatus.UNAVAILABLE, "alert dispatcher not implemented yet")
+    components.set("alerts", ComponentStatus.OK, "dashboard channel (SMS/WhatsApp in B9)")
 
 
 def _load_coercion_model(settings: Settings, components: ComponentRegistry) -> ModelTagger | None:
@@ -152,6 +154,13 @@ def create_app(
                 VadSegmenter(vad_config, classifier),
                 components,
                 analyzer=CallAnalyzer(engine, extractor) if engine and extractor else None,
+                alerts=CallAlerts(
+                    session_id,
+                    [DashboardChannel(bus)],
+                    storage,
+                    settings.elder_name,
+                    settings.alert_send_timeout_s,
+                ),
             )
 
         sessions = SessionManager(settings, storage, components, pipeline_factory=make_pipeline)

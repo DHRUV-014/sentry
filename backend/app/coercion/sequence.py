@@ -7,6 +7,8 @@ result is scaled by how far the call has progressed along the chain
     AUTHORITY -> THREAT/URGENCY -> SECRECY/ISOLATION -> PAYMENT/CREDENTIAL
 
 with a bonus when stages appeared in that order. Protective cues reduce the score (capped).
+Evidence fades with time: each utterance's contribution is scaled by 0.5^(age / half-life), so
+pressure that stopped minutes ago weighs less than pressure happening now.
 Finally the hard rules cap it: no HIGH from a single tactic or single utterance, no CRITICAL
 without a payment/credential demand plus threat/secrecy (or a verification mismatch).
 
@@ -34,6 +36,7 @@ class CoercionConfig:
     critical_requires_any: frozenset[str]
     critical_with_any: frozenset[str]
     cap_margin: float
+    decay_half_life_s: float
     high: float
     critical: float
 
@@ -51,6 +54,7 @@ class CoercionConfig:
             critical_requires_any=frozenset(c["critical_requires_any"]),
             critical_with_any=frozenset(c["critical_with_any"]),
             cap_margin=float(c["cap_margin"]),
+            decay_half_life_s=float(c["decay_half_life_s"]),
             high=float(levels["high"]),
             critical=float(levels["critical"]),
         )
@@ -98,10 +102,14 @@ class SequenceTracker:
     _per_src: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
     _first_seen: dict[str, ChainStep] = field(default_factory=dict)
     _protective: dict[str, float] = field(default_factory=dict)
+    _t: dict[str, float] = field(default_factory=dict)  # utterance_id -> call time (s)
+    _now: float = 0.0
 
     def update(
         self, utterance_id: str, t_s: float, hits: list[Hit], verification_mismatch: bool = False
     ) -> SequenceSnapshot:
+        self._t[utterance_id] = t_s
+        self._now = max(self._now, t_s)
         for hit in hits:
             if hit.score <= 0:
                 continue
@@ -123,9 +131,13 @@ class SequenceTracker:
                 )
         return self.snapshot(verification_mismatch)
 
+    def _decayed(self, per: dict[str, float]) -> list[float]:
+        hl = self.cfg.decay_half_life_s
+        return [v * 0.5 ** (max(0.0, self._now - self._t[u]) / hl) for u, v in per.items()]
+
     def snapshot(self, verification_mismatch: bool = False) -> SequenceSnapshot:
         cfg = self.cfg
-        strengths = {t: _noisy_or(list(u.values())) for t, u in self._per_utt.items()}
+        strengths = {t: _noisy_or(self._decayed(u)) for t, u in self._per_utt.items()}
         weighted = [cfg.tactic_weights[t] * s for t, s in strengths.items()]
         base = _noisy_or(weighted)
 
@@ -141,7 +153,7 @@ class SequenceTracker:
         factor = cfg.chain_factor.get(len(stages), 0.0) if stages else 0.0
         if ordered:
             factor *= 1.0 + cfg.ordered_bonus
-        protective = _noisy_or(list(self._protective.values()))
+        protective = _noisy_or(self._decayed(self._protective))
         reduction = min(cfg.protective_max_reduction, protective)
         raw = min(1.0, base * factor * (1.0 - reduction))
 
@@ -173,7 +185,7 @@ class SequenceTracker:
                 contributions.append(
                     Contribution(
                         signal=f"coercion.{t}.{source}",
-                        value=round(_noisy_or(list(per.values())), 4),
+                        value=round(_noisy_or(self._decayed(per)), 4),
                         weight=cfg.tactic_weights[t],
                         evidence_utterance_id=max(per, key=per.get),
                     )
