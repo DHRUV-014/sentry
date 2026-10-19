@@ -15,6 +15,10 @@ Two places enforce this:
 
 Training, threshold tuning and model selection never touch it.
 
+## Demo
+
+`make demo` runs the live /demo page (B4-lite + frontend); see DEMO.md.
+
 ## Done (committed)
 
 | Milestone | Commit | What |

@@ -120,6 +120,11 @@ backend/
                          generated/ (LLM batches), data/ (dataset + STT-noised copy), train/export
   models/coercion/       built classifier (git-ignored): model.onnx, tokenizer.json, model.json
   tests/                 unit + pipeline tests; tests/audio_scripts/ = synthetic call scripts
+frontend/                React + Vite + TS + Tailwind; /demo page (mic or WAV -> AudioWorklet -> /ws/audio)
+  public/pcm-worklet.js  16 kHz mono int16, exact 20 ms frames
+  src/lib/               session.ts (REST + both sockets), audio.ts (mic, file), state.ts (event reducer)
+  src/components/        Panels.tsx (health strip, risk meter/chart, chain, transcript, why, alert)
+scripts/demo.sh          `make demo` (repo root): backend + warm-up + frontend; DEMO.md has the run sheet
 samples/                 local audio (gitignored); samples/synthetic_tts/ = rendered TTS calls
 ```
 

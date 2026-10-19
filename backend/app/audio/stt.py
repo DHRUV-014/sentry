@@ -193,6 +193,9 @@ class FasterWhisperProvider:
             if self.detect_model_size == self.model_size
             else load(self.detect_model_size)
         )
+        # Warm-up: the first inference allocates buffers and is several times slower; do it now
+        # (one second of silence through both models) so the first real utterance isn't.
+        self._transcribe_sync(np.zeros(16000, dtype=np.float32))
 
     async def transcribe(self, pcm: np.ndarray) -> Transcript:
         if self._model is None:
