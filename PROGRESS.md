@@ -160,35 +160,29 @@ optimistic. The real test is `eval/human/`, after "training frozen".
 - In both calls the lexicon caught these phrases, but in model mode lexicon hits don't count.
 - `benign_bank_fraud_alert` peaked at MEDIUM 0.51. That is still within the benign rule.
 
-**Direct vs streaming STT check (20 rows): not verified.**
-- It ran while MuRIL training saturated the machine. Direct STT took a median of 11 s per row.
-- The live path transcribed only 8 utterances across 19 sessions; the rest hit the 8 s STT
-  timeout.
-- On the 6 rows that streamed, the outputs differed from direct STT by 2–9 words, mostly where VAD
-  split the audio at the 8 s maximum.
-- Re-running direct STT on a row also didn't reproduce the saved text exactly in 7 of 19 rows.
-- It needs a re-run on an idle machine.
+**Direct vs streaming STT check (20 rows, idle machine): FAIL** on the "≤ 5% word difference"
+criterion.
 
-### Files
-
-- `training/coercion/`
-  - `DATA.md`, `generator_instructions.md`
-  - `make_prompts.py`, `prompts/`
-  - `generated/` (raw LLM batches)
-  - `build_dataset.py`, `data/dataset.jsonl`, `data/counts.json`
-  - `make_noisy.py`, `data/stt_noisy.jsonl`
-  - `train.py`, `compare.py`, `export.py`, `rebuild.sh`
-- `models/coercion/` (git-ignored): `model.onnx`, `tokenizer.json`, `model.json`, `metrics.json`,
-  and `runs/<run>/`
-- `app/coercion/model_tagger.py`
-- `tests/test_model_tagger.py`
-- `make setup-train`, `make train-coercion`
-- `tools/coercion_report.py --model`
+- **No timeouts.** There were 0 timeouts, drops or errors in 20 streamed rows.
+- **Direct STT is deterministic.** It gave the same text on two runs for 20 of 20 rows, and
+  matched the saved training row for 19 of 20.
+- **Rows VAD kept as one segment (17):**
+  - 3 were identical, and 7 were within 5% normalized word difference.
+  - Overall difference was 9.7%; the worst row differed by 33%, the worst being Hinglish.
+- **Rows VAD split at the 8 s maximum (3):** the outputs diverged completely, with word
+  differences of 7/24, 29/20 and 27/16 (a Hinglish row came back in English when streamed).
+- **Cause:** the live path hands Whisper a different audio clip (pre-roll, trimmed trailing
+  silence, cuts at 8 s), so the same speech decodes differently. It isn't pacing or
+  randomness. The noisy rows have similar noise to live output but aren't identical to it.
+- **Proposed fix (not done):** have `make_noisy.py` run each clip through the same
+  `VadSegmenter` offline, without real-time pacing, so segmentation matches live by
+  construction. Then regenerate the 1,000 rows (about 45 min) and retrain.
 
 ### Left in B3.5
 
 1. **Wait for "training frozen".** Then evaluate the shipped model and the lexicon on
    `eval/human/`.
-2. Re-run the 20-row direct vs streaming STT check on an idle machine.
+2. Decide on the noisy-copy fix: run clips through VadSegmenter offline, then regenerate and
+   retrain (the streaming check failed).
 3. Decide how to close the recall gaps: the lexicon caught the two call-level misses, but it can't
    count in model mode.
