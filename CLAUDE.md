@@ -250,6 +250,7 @@ access to it.
 
 ## Working rules for agents
 
+- **Never run `git commit` or `git push`.** The user handles all commits themselves; give the commands instead.
 - Before putting a number in code, put it in `.env`/settings or a YAML config.
 - A new signal or rule needs a unit test **and** must appear in risk `contributions`.
 - A new external call needs a timeout, `status` reporting, and a test for the unavailable path.
