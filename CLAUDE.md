@@ -126,8 +126,15 @@ backend/
   tests/                 unit + pipeline tests; tests/audio_scripts/ = synthetic call scripts
 frontend/                React + Vite + TS + Tailwind; /demo page (mic or WAV -> AudioWorklet -> /ws/audio)
   public/pcm-worklet.js  16 kHz mono int16, exact 20 ms frames
-  src/lib/               session.ts (REST + both sockets), audio.ts (mic, file), state.ts (event reducer)
-  src/components/        Panels.tsx (health strip, risk meter/chart, chain, transcript, why, alert)
+  src/lib/               session.ts (REST + both sockets), audio.ts (mic, file), state.ts (event reducer),
+                         firebase.ts (config from frontend/.env), auth.tsx (auth state + profile listener),
+                         profile.ts (users/{uid} fields, mobile validation), router.ts (History API)
+  src/pages/             AuthPage (/auth), Onboarding (/onboarding, 3 steps), Home (/)
+  src/components/        Panels.tsx (health strip, risk meter/chart, chain, transcript, why, alert),
+                         ui.tsx (form primitives), AppShell.tsx (header + sign-out), GoogleButton.tsx
+  firestore.rules        users/{uid}: owner only, allow-listed fields, email = token email, consent
+                         required with a trusted contact. `npm run test:rules` tests it on the emulator.
+  firebase.json          emulator ports (auth 9099, firestore 8085); `npm run emulators`
 scripts/demo.sh          `make demo` (repo root): backend + warm-up + frontend; DEMO.md has the run sheet
 samples/                 local audio (gitignored); samples/synthetic_tts/ = rendered TTS calls
 ```
@@ -143,6 +150,10 @@ samples/                 local audio (gitignored); samples/synthetic_tts/ = rend
 - `POST /verify/manual`: "Check this caller" form → tactics + TinyFish checks → level, reasons,
   checks (with sources), next steps (EN/HI, always ending "Report at cybercrime.gov.in or call
   1930"). 422 on an invalid phone, UPI ID or URL.
+- **Frontend auth (Firebase):** route guard in `App.tsx`. Signed out → `/auth`; not onboarded →
+  `/onboarding`; otherwise `/`, `/demo`, `/check`. The FastAPI endpoints are not authenticated yet:
+  when the backend needs the user (for example B9 alerts to the trusted contact), verify the Firebase
+  ID token on the server and never trust a uid sent by the client.
 - `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, storage`. Overall
   `degraded` unless the core (`stt, vad, lexicon, classifier, storage`) is ok.
 

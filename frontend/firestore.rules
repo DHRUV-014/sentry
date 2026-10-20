@@ -1,0 +1,64 @@
+rules_version = '2';
+
+// Each person can read and write only their own profile, users/{uid}.
+// Writes are validated here, not just in the app: only the fields below can ever be stored
+// (no Aadhaar, PAN, bank details or OTPs), the email must be the signed-in account's email,
+// and a trusted contact can only be saved together with the user's consent.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedInAs(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isMobile(v) {
+      return v is string && v.matches('^\\+91[6-9][0-9]{9}$');
+    }
+
+    function optionalString(d, key, maxLen) {
+      return !(key in d) || d[key] == null || (d[key] is string && d[key].size() <= maxLen);
+    }
+
+    function validContact(c, d) {
+      return c.keys().hasOnly(['name', 'relationship', 'mobile', 'email'])
+        && c.keys().hasAll(['name', 'relationship', 'mobile'])
+        && c.name is string && c.name.size() >= 2 && c.name.size() <= 100
+        && c.relationship in ['son', 'daughter', 'spouse', 'parent', 'sibling', 'friend', 'other']
+        && isMobile(c.mobile)
+        && (!('mobile' in d) || c.mobile != d.mobile)
+        && (!('email' in c) || c.email == null
+            || (c.email is string && c.email.size() <= 254 && c.email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')))
+        && d.get('alertConsent', false) == true
+        && d.get('alertConsentAt', null) is timestamp;
+    }
+
+    function validUser(d) {
+      return d.keys().hasOnly([
+          'fullName', 'email', 'mobile', 'language', 'ageGroup', 'city',
+          'trustedContact', 'alertConsent', 'alertConsentAt',
+          'onboardingStep', 'onboardingComplete', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['fullName', 'email', 'onboardingStep', 'onboardingComplete', 'createdAt', 'updatedAt'])
+        && d.fullName is string && d.fullName.size() >= 2 && d.fullName.size() <= 100
+        && d.email == request.auth.token.email
+        && (!('mobile' in d) || isMobile(d.mobile))
+        && (!('language' in d) || d.language in ['en', 'hi', 'hinglish'])
+        && (!('ageGroup' in d) || d.ageGroup == null || d.ageGroup in ['under30', '30to59', '60plus'])
+        && optionalString(d, 'city', 100)
+        && (!('trustedContact' in d) || d.trustedContact == null || validContact(d.trustedContact, d))
+        && (!('alertConsent' in d) || d.alertConsent is bool)
+        && (!('alertConsentAt' in d) || d.alertConsentAt == null || d.alertConsentAt is timestamp)
+        && d.onboardingStep is int && d.onboardingStep >= 1 && d.onboardingStep <= 3
+        && d.onboardingComplete is bool
+        && (d.onboardingComplete == false || ('mobile' in d && 'language' in d))
+        && d.updatedAt == request.time;
+    }
+
+    match /users/{uid} {
+      allow read, delete: if signedInAs(uid);
+      allow create: if signedInAs(uid) && validUser(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      allow update: if signedInAs(uid) && validUser(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+  }
+}

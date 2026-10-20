@@ -7,9 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-scamshield",
+    "test:rules": "firebase emulators:exec --only auth,firestore --project demo-scamshield 'node tests/firestore-rules.test.mjs'"
   },
   "dependencies": {
+    "firebase": "12.19.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

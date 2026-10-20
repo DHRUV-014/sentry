@@ -1,4 +1,11 @@
-import { useCallback, useReducer, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useReducer, useRef, useState } from "react";
+import AppShell from "./components/AppShell";
+import { Banner, Button, FullPageLoader, Logo } from "./components/ui";
+import { AuthProvider, useAuth, type AuthState } from "./lib/auth";
+import { navigate, safeNext, useLocation } from "./lib/router";
+import AuthPage from "./pages/AuthPage";
+import Home from "./pages/Home";
+import Onboarding from "./pages/Onboarding";
 import Check from "./Check";
 import { AlertPanel, HealthStrip, RiskChart, RiskMeter, TacticChain, Transcript, WhyPanel } from "./components/Panels";
 import { startMic, streamFile, type Source } from "./lib/audio";
@@ -8,12 +15,70 @@ import { initialState, reduce } from "./lib/state";
 type Phase = "idle" | "starting" | "live" | "ending";
 
 export default function App() {
-  if (location.pathname === "/demo") return <Demo />;
-  if (location.pathname === "/check") return <Check />;
   return (
-    <main className="space-y-4 p-10 text-3xl">
-      <a className="block underline" href="/demo">Live call demo →</a>
-      <a className="block underline" href="/check">Check this caller →</a>
+    <AuthProvider>
+      <Routes />
+    </AuthProvider>
+  );
+}
+
+const APP_PAGES = ["/", "/demo", "/check"];
+
+/** Where the current visitor belongs: not signed in -> /auth, signed in without finished
+ *  onboarding -> /onboarding, otherwise the page asked for (unknown paths -> home). */
+function target(path: string, search: URLSearchParams, state: AuthState): string {
+  if (state.status === "signedOut" || state.status === "unconfigured") {
+    if (path === "/auth") return path;
+    return APP_PAGES.includes(path) && path !== "/" ? `/auth?next=${encodeURIComponent(path)}` : "/auth";
+  }
+  if (state.status !== "signedIn") return path;
+  if (!state.profile?.onboardingComplete) return "/onboarding";
+  if (path === "/auth") return safeNext(search.get("next")) ?? "/";
+  return path === "/onboarding" || APP_PAGES.includes(path) ? path : "/";
+}
+
+function Routes() {
+  const { state, retry } = useAuth();
+  const { path, search } = useLocation();
+  const to = target(path, search, state);
+  const here = to === path || (to.startsWith("/auth") && path === "/auth");
+
+  useLayoutEffect(() => {
+    if (!here) navigate(to, { replace: true });
+  }, [here, to]);
+
+  if (state.status === "loading") return <FullPageLoader />;
+  if (state.status === "error") return <LoadError message={state.message} retry={retry} />;
+  if (!here) return <FullPageLoader />;
+  if (path === "/auth") return <AuthPage />;
+  if (path === "/onboarding") return <Onboarding key={search.get("step") ?? ""} />;
+  if (path === "/demo")
+    return (
+      <AppShell theme="dark">
+        <Demo />
+      </AppShell>
+    );
+  if (path === "/check")
+    return (
+      <AppShell theme="dark">
+        <Check />
+      </AppShell>
+    );
+  return (
+    <AppShell>
+      <Home />
+    </AppShell>
+  );
+}
+
+function LoadError({ message, retry }: { message: string; retry: () => void }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
+      <div className="w-full max-w-md space-y-6 text-center">
+        <Logo className="mx-auto h-12 w-12" />
+        <Banner kind="error">{message}</Banner>
+        <Button onClick={retry}>Try again</Button>
+      </div>
     </main>
   );
 }

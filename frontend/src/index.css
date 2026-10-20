@@ -3,5 +3,90 @@
 @tailwind utilities;
 
 html {
-  font-size: 18px; /* projector-friendly base size */
+  font-size: 18px; /* projector-friendly base size; also keeps every input >= 16px */
+}
+
+/* Theme tokens as RGB channels so Tailwind opacity modifiers work (bg-accent/10). */
+:root {
+  --canvas: 248 250 252;
+  --surface: 255 255 255;
+  --subtle: 241 245 249;
+  --line: 214 221 230;
+  --ink: 15 23 42;
+  --muted: 84 98 120;
+  --accent: 29 92 214;
+  --accent-hover: 22 74 178;
+  --accent-ink: 255 255 255;
+  --danger: 185 28 28;
+  --danger-soft: 254 236 236;
+  --ok: 21 128 61;
+  --ok-soft: 230 246 236;
+  --info-soft: 232 240 254;
+  --shadow: 15 23 42;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: 2 6 23;
+    --surface: 13 20 37;
+    --subtle: 22 31 51;
+    --line: 45 57 82;
+    --ink: 241 245 249;
+    --muted: 160 174 196;
+    --accent: 110 160 255;
+    --accent-hover: 145 184 255;
+    --accent-ink: 6 14 32;
+    --danger: 252 129 129;
+    --danger-soft: 60 18 24;
+    --ok: 110 220 150;
+    --ok-soft: 14 48 32;
+    --info-soft: 20 36 70;
+    --shadow: 0 0 0;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --canvas: 2 6 23;
+  --surface: 13 20 37;
+  --subtle: 22 31 51;
+  --line: 45 57 82;
+  --ink: 241 245 249;
+  --muted: 160 174 196;
+  --accent: 110 160 255;
+  --accent-hover: 145 184 255;
+  --accent-ink: 6 14 32;
+  --danger: 252 129 129;
+  --danger-soft: 60 18 24;
+  --ok: 110 220 150;
+  --ok-soft: 14 48 32;
+  --info-soft: 20 36 70;
+  --shadow: 0 0 0;
+  color-scheme: dark;
+}
+
+body {
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.animate-step {
+  animation: step-in 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-step {
+    animation: none;
+  }
+  * {
+    transition-duration: 0ms !important;
+  }
 }

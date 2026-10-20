@@ -19,6 +19,18 @@ make demo
 
 If port 8000 is busy: `kill $(lsof -tnP -iTCP:8000 -sTCP:LISTEN)`.
 
+### Sign-in (required since the auth flow was added)
+
+Every page except `/auth` needs a signed-in, onboarded account. Firebase settings come from
+`frontend/.env` (copy `frontend/.env.example`). Without them, `/auth` says "Sign-in isn't set up yet".
+
+- **Real Firebase project:** fill in the four `VITE_FIREBASE_*` values.
+- **No internet or no project (local emulators):** run `cd frontend && npm run emulators` in a second
+  terminal, and set the emulator values listed in `.env.example`. Accounts made there are local
+  and are wiped when the emulators stop.
+
+Sign in or create an account before the audience arrives, so the demo starts on `/demo`.
+
 ## Before the audience arrives (2 minutes)
 
 1. **Check the health strip at the top of /demo.** Speech-to-text, Classifier and Lexicon must be
