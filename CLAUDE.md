@@ -129,7 +129,9 @@ frontend/                React + Vite + TS + Tailwind; /demo page (mic or WAV ->
   src/lib/               session.ts (REST + both sockets), audio.ts (mic, file), state.ts (event reducer),
                          firebase.ts (config from frontend/.env), auth.tsx (auth state + profile listener),
                          profile.ts (users/{uid} fields, mobile validation), router.ts (History API)
-  src/pages/             AuthPage (/auth), Onboarding (/onboarding, 3 steps), Home (/)
+  src/pages/             landing/ (/ : Landing, HeroCall, Sections), AuthPage (/auth), Onboarding (/onboarding),
+                         Dashboard (/dashboard), Live (/demo)
+  src/lib/               theme.ts (light/dark toggle), recentChecks.ts (dashboard list, this browser only), brand.ts
   src/components/        Panels.tsx (health strip, risk meter/chart, chain, transcript, why, alert),
                          ui.tsx (form primitives), AppShell.tsx (header + sign-out), GoogleButton.tsx
   firestore.rules        users/{uid}: owner only, allow-listed fields, email = token email, consent
@@ -150,8 +152,9 @@ samples/                 local audio (gitignored); samples/synthetic_tts/ = rend
 - `POST /verify/manual`: "Check this caller" form → tactics + TinyFish checks → level, reasons,
   checks (with sources), next steps (EN/HI, always ending "Report at cybercrime.gov.in or call
   1930"). 422 on an invalid phone, UPI ID or URL.
-- **Frontend auth (Firebase):** route guard in `App.tsx`. Signed out → `/auth`; not onboarded →
-  `/onboarding`; otherwise `/`, `/demo`, `/check`. The FastAPI endpoints are not authenticated yet:
+- **Frontend routes + auth (Firebase):** route guard in `App.tsx`. `/` is the public landing page.
+  Signed out → app pages go to `/auth?next=…`; not onboarded → `/onboarding`; signed in →
+  `/dashboard`, `/demo`, `/check`. Sign out returns to `/`. The FastAPI endpoints are not authenticated yet:
   when the backend needs the user (for example B9 alerts to the trusted contact), verify the Firebase
   ID token on the server and never trust a uid sent by the client.
 - `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, storage`. Overall

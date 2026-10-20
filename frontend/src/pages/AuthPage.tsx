@@ -1,6 +1,11 @@
+import { BadgeCheck, EyeOff, Users } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import BrandMotion from "../components/BrandMotion";
 import GoogleButton from "../components/GoogleButton";
-import { Banner, Button, Checkbox, LinkButton, Logo, PasswordField, TextField } from "../components/ui";
+import Link from "../components/Link";
+import { Banner, Button, Checkbox, LinkButton, Logo, PasswordField, TextField, ThemeToggle, focusRing } from "../components/ui";
+import { BRAND, EASE, TAGLINE } from "../lib/brand";
 import { useAuth } from "../lib/auth";
 import { friendlyError, isUserCancel } from "../lib/authErrors";
 import { missingConfig } from "../lib/firebase";
@@ -13,9 +18,9 @@ type Errors = Record<string, string>;
 
 const MIN_PASSWORD = 8;
 const TRUST_POINTS = [
-  { title: "Your recordings are never stored", body: "Calls are analysed as they happen. Audio stays in memory and is never saved." },
-  { title: "Family alerts only with consent", body: "We only alert the person you choose, and only if they've agreed." },
-  { title: "Verified with official sources", body: "Numbers and claims are checked against official bank and government websites." },
+  { icon: EyeOff, title: "Your recordings are never stored", body: "Calls are analysed as they happen. Audio stays in memory and is never saved." },
+  { icon: Users, title: "Family alerts only with consent", body: "We only alert the person you choose, and only if they've agreed." },
+  { icon: BadgeCheck, title: "Verified with official sources", body: "Numbers and claims are checked against official bank and government websites." },
 ];
 
 function focusFirstError(errors: Errors, ids: string[]) {
@@ -34,7 +39,7 @@ export function passwordStrength(pw: string): { level: 0 | 1 | 2 | 3; label: str
 
 function StrengthMeter({ password }: { password: string }) {
   const { level, label } = passwordStrength(password);
-  const color = ["bg-line", "bg-danger", "bg-accent", "bg-ok"][level];
+  const color = ["bg-line", "bg-ink-2", "bg-accent/60", "bg-accent"][level];
   return (
     <div aria-live="polite">
       <div className="mb-1.5 flex gap-1.5" aria-hidden="true">
@@ -88,23 +93,21 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen bg-canvas lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <BrandPanel />
-      <main className="flex min-h-screen flex-col px-4 py-8 sm:px-8 lg:min-h-0 lg:justify-center lg:py-12">
-        <div className="mx-auto w-full max-w-md">
+      <main className="relative flex min-h-screen flex-col px-4 py-6 sm:px-8 lg:min-h-0 lg:justify-center lg:py-12">
+        <ThemeToggle className="absolute right-4 top-4 sm:right-6" />
+        <div className="mx-auto w-full max-w-md lg:rounded-card lg:bg-surface lg:p-10 lg:shadow-card lg:ring-1 lg:ring-line/70">
           {/* Mobile: the brand panel collapses into this header. */}
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
+          <Link to="/" className={`mb-10 inline-flex items-center gap-2.5 rounded-md lg:hidden ${focusRing}`}>
             <Logo />
-            <div>
-              <div className="text-lg font-bold tracking-tight">Scam Shield</div>
-              <div className="text-sm text-muted">AI that catches scam calls and tells you what's true</div>
-            </div>
-          </div>
+            <span className="text-lg font-semibold tracking-tight">{BRAND}</span>
+          </Link>
 
-          <h1 className="text-3xl font-bold tracking-tight">{mode === "signin" ? "Welcome back" : "Create your account"}</h1>
-          <p className="mt-2 text-base text-muted">
+          <h1 className="text-2xl font-semibold sm:text-3xl">{mode === "signin" ? "Welcome back" : "Create your account"}</h1>
+          <p className="mt-2 text-base text-ink-2">
             {mode === "signin" ? "Sign in to keep your calls protected." : "It takes about two minutes."}
           </p>
 
-          <div role="tablist" aria-label="Sign in or create an account" className="mt-8 grid grid-cols-2 rounded-lg bg-subtle p-1" onKeyDown={onTabKey}>
+          <div role="tablist" aria-label="Sign in or create an account" className="mt-8 grid grid-cols-2 rounded-control bg-subtle p-1" onKeyDown={onTabKey}>
             {(["signin", "signup"] as Mode[]).map((m) => (
               <button
                 key={m}
@@ -116,11 +119,14 @@ export default function AuthPage() {
                 aria-controls={`panel-${m}`}
                 tabIndex={mode === m ? 0 : -1}
                 onClick={() => setMode(m)}
-                className={`min-h-11 rounded-md text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/30 ${
-                  mode === m ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"
+                className={`relative min-h-10 rounded-[8px] text-sm font-semibold transition-colors duration-150 ${focusRing} ${
+                  mode === m ? "text-ink" : "text-ink-2 hover:text-ink"
                 }`}
               >
-                {m === "signin" ? "Sign in" : "Create account"}
+                {mode === m && (
+                  <motion.span layoutId="auth-tab" className="absolute inset-0 rounded-[8px] bg-surface shadow-sm" transition={{ duration: 0.3, ease: EASE }} />
+                )}
+                <span className="relative">{m === "signin" ? "Sign in" : "Create account"}</span>
               </button>
             ))}
           </div>
@@ -136,20 +142,30 @@ export default function AuthPage() {
 
             <GoogleButton onClick={() => void google()} loading={busy === "google"} disabled={unconfigured || (busy !== null && busy !== "google")} />
 
-            <div className="flex items-center gap-4 text-sm text-muted" aria-hidden="true">
+            <div className="flex items-center gap-4 text-sm text-ink-2" aria-hidden="true">
               <span className="h-px flex-1 bg-line" />
               or
               <span className="h-px flex-1 bg-line" />
             </div>
 
-            {mode === "signin" ? (
-              <SignInForm busy={busy} setBusy={setBusy} setNotice={setNotice} disabled={unconfigured} />
-            ) : (
-              <SignUpForm busy={busy} setBusy={setBusy} setNotice={setNotice} disabled={unconfigured} />
-            )}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={mode}
+                initial={{ opacity: 0, x: mode === "signup" ? 16 : -16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: mode === "signup" ? -16 : 16 }}
+                transition={{ duration: 0.22, ease: EASE }}
+              >
+                {mode === "signin" ? (
+                  <SignInForm busy={busy} setBusy={setBusy} setNotice={setNotice} disabled={unconfigured} />
+                ) : (
+                  <SignUpForm busy={busy} setBusy={setBusy} setNotice={setNotice} disabled={unconfigured} />
+                )}
+              </motion.div>
+            </AnimatePresence>
 
-            <p className="text-center text-base text-muted">
-              {mode === "signin" ? "New to Scam Shield? " : "Already have an account? "}
+            <p className="text-center text-base text-ink-2">
+              {mode === "signin" ? `New to ${BRAND}? ` : "Already have an account? "}
               <LinkButton onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
                 {mode === "signin" ? "Create an account" : "Sign in"}
               </LinkButton>
@@ -163,31 +179,29 @@ export default function AuthPage() {
 
 function BrandPanel() {
   return (
-    <aside className="relative hidden overflow-hidden bg-subtle px-12 py-12 lg:flex lg:flex-col lg:justify-between xl:px-16">
-      <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-accent/10" aria-hidden="true" />
-      <div className="relative flex items-center gap-3">
-        <Logo className="h-10 w-10" />
-        <span className="text-xl font-bold tracking-tight">Scam Shield</span>
-      </div>
-      <div className="relative max-w-lg">
-        <p className="text-4xl font-bold leading-tight tracking-tight">AI that catches scam calls and tells you what's true</p>
+    <aside className="paper-grain relative hidden overflow-hidden bg-subtle px-12 py-12 lg:flex lg:flex-col lg:justify-between xl:px-16">
+      <BrandMotion className="pointer-events-none absolute -right-28 -top-16 h-[440px] w-[440px]" />
+      <Link to="/" className={`relative flex w-fit items-center gap-3 rounded-md ${focusRing}`}>
+        <Logo className="h-9 w-9" />
+        <span className="text-xl font-semibold tracking-tight">{BRAND}</span>
+      </Link>
+      <div className="relative max-w-md">
+        <p className="font-display text-4xl leading-[1.05] text-ink">{TAGLINE}</p>
         <ul className="mt-10 space-y-6">
           {TRUST_POINTS.map((p) => (
             <li key={p.title} className="flex gap-4">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-                <svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5" aria-hidden="true">
-                  <path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.6l7.3-7.3a1 1 0 0 1 1.4 0Z" clipRule="evenodd" />
-                </svg>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface text-accent shadow-card">
+                <p.icon size={18} strokeWidth={1.5} aria-hidden="true" />
               </span>
               <div>
-                <div className="text-lg font-semibold">{p.title}</div>
-                <div className="mt-1 text-base text-muted">{p.body}</div>
+                <div className="text-base font-semibold">{p.title}</div>
+                <div className="mt-0.5 text-sm text-ink-2">{p.body}</div>
               </div>
             </li>
           ))}
         </ul>
       </div>
-      <p className="relative text-sm text-muted">English · हिन्दी · Hinglish</p>
+      <p className="relative text-sm text-ink-2">English · हिन्दी · Hinglish</p>
     </aside>
   );
 }
@@ -361,11 +375,11 @@ function SignUpForm({ busy, setBusy, setNotice, disabled }: FormProps) {
       />
       <Checkbox id="signup-terms" checked={terms} onChange={setTerms} error={errors["signup-terms"]}>
         I agree to the{" "}
-        <a href="#terms" className="font-medium text-accent underline underline-offset-4">
+        <a href="#terms" className={`rounded-sm font-medium text-accent underline underline-offset-4 ${focusRing}`}>
           Terms of Service
         </a>{" "}
         and{" "}
-        <a href="#privacy" className="font-medium text-accent underline underline-offset-4">
+        <a href="#privacy" className={`rounded-sm font-medium text-accent underline underline-offset-4 ${focusRing}`}>
           Privacy Policy
         </a>
         .

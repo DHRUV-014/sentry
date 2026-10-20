@@ -72,20 +72,3 @@ export function reduce(state: CallState, action: Action): CallState {
       return state;
   }
 }
-
-export const LEVEL_STYLE: Record<Level, { text: string; bg: string; ring: string; stroke: string }> = {
-  LOW: { text: "text-emerald-300", bg: "bg-emerald-600", ring: "ring-emerald-500", stroke: "#34d399" },
-  MEDIUM: { text: "text-amber-300", bg: "bg-amber-500", ring: "ring-amber-400", stroke: "#fbbf24" },
-  HIGH: { text: "text-orange-300", bg: "bg-orange-600", ring: "ring-orange-500", stroke: "#fb923c" },
-  CRITICAL: { text: "text-red-300", bg: "bg-red-600", ring: "ring-red-500", stroke: "#f87171" },
-};
-
-export const TACTIC_STYLE: Record<string, string> = {
-  AUTHORITY: "bg-sky-500/30 text-sky-100 ring-sky-400",
-  THREAT: "bg-red-500/30 text-red-100 ring-red-400",
-  URGENCY: "bg-amber-500/30 text-amber-100 ring-amber-400",
-  SECRECY: "bg-fuchsia-500/30 text-fuchsia-100 ring-fuchsia-400",
-  ISOLATION: "bg-violet-500/30 text-violet-100 ring-violet-400",
-  PAYMENT: "bg-orange-500/30 text-orange-100 ring-orange-400",
-  CREDENTIAL: "bg-rose-500/30 text-rose-100 ring-rose-400",
-};

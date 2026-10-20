@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { buttonClass, inputClass } from "./ui";
 
 type Bi = { en: string; hi: string };
 
@@ -56,14 +57,14 @@ export default function InstitutionPicker({
 
   if (value === "other" || chosen) {
     return (
-      <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-sky-900/60 px-5 py-4 text-2xl ring-2 ring-sky-500">
-        <span className="font-bold">
+      <div className="flex flex-wrap items-center gap-3 rounded-control bg-accent-tint px-4 py-3 text-base ring-2 ring-inset ring-accent">
+        <span className="font-semibold">
           {value === "other" ? t({ en: "Other / not in the list", hi: "अन्य / सूची में नहीं" }) : `${chosen!.name} · ${chosen!.name_hi}`}
         </span>
         {chosen && !chosen.checkable && (
-          <span className="text-lg text-amber-300">{t({ en: "can't be checked online", hi: "ऑनलाइन जाँच संभव नहीं" })}</span>
+          <span className="text-sm text-ink-2">{t({ en: "can't be checked online", hi: "ऑनलाइन जाँच संभव नहीं" })}</span>
         )}
-        <button className="ml-auto rounded-xl bg-slate-700 px-4 py-2 text-xl" onClick={() => { onPick(null); setOpen(true); }}>
+        <button className={`${buttonClass("secondary")} ml-auto`} onClick={() => { onPick(null); setOpen(true); }}>
           {t({ en: "Change", hi: "बदलें" })}
         </button>
       </div>
@@ -73,7 +74,11 @@ export default function InstitutionPicker({
   return (
     <div className="relative">
       <input
-        className="w-full rounded-2xl bg-slate-800 px-5 py-4 text-2xl text-white ring-2 ring-slate-600 focus:outline-none focus:ring-sky-400"
+        className={`${inputClass} ring-line`}
+        aria-labelledby="inst-label"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
         value={text}
         placeholder={t({ en: "Type to search: SBI, PSB, HDFC, CBI, India Post…", hi: "खोजें: एसबीआई, पंजाब नेशनल बैंक, सीबीआई…" })}
         onFocus={() => setOpen(true)}
@@ -84,25 +89,25 @@ export default function InstitutionPicker({
         }}
       />
       {open && (
-        <ul className="absolute z-10 mt-2 max-h-96 w-full overflow-y-auto rounded-2xl bg-slate-800 py-2 text-2xl shadow-2xl ring-2 ring-slate-600">
+        <ul className="absolute z-20 mt-2 max-h-96 w-full overflow-y-auto rounded-card bg-surface p-1.5 text-base shadow-lift ring-1 ring-line">
           {matches.map((i) => (
             <li key={i.id}>
               <button
-                className="flex w-full flex-wrap items-baseline gap-x-3 px-5 py-3 text-left hover:bg-slate-700"
+                className="flex w-full flex-wrap items-baseline gap-x-3 rounded-[8px] px-3 py-2.5 text-left hover:bg-subtle focus:bg-subtle focus:outline-none"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { onPick(i.id); setOpen(false); }}
               >
                 <span className="font-semibold">{i.name}</span>
-                <span className="text-slate-300">{i.name_hi}</span>
+                <span className="text-sm text-ink-2">{i.name_hi}</span>
               </button>
             </li>
           ))}
           {matches.length === 0 && (
-            <li className="px-5 py-3 text-xl text-slate-400">{t({ en: "Not in our list", hi: "हमारी सूची में नहीं" })}</li>
+            <li className="px-3 py-2.5 text-sm text-ink-2">{t({ en: "Not in our list", hi: "हमारी सूची में नहीं" })}</li>
           )}
-          <li className="border-t border-slate-600">
+          <li className="mt-1 border-t border-line pt-1">
             <button
-              className="w-full px-5 py-3 text-left font-semibold text-amber-300 hover:bg-slate-700"
+              className="w-full rounded-[8px] px-3 py-2.5 text-left font-semibold text-accent hover:bg-subtle focus:bg-subtle focus:outline-none"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { onPick("other"); setOpen(false); }}
             >

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Banner, Button, Checkbox, LinkButton, Logo, RadioCards, SelectField, TextField } from "../components/ui";
+import { ShieldCheck } from "lucide-react";
+import Link from "../components/Link";
+import { Banner, Button, Checkbox, LinkButton, Logo, RadioCards, SelectField, Stepper, TextField, ThemeToggle, focusRing } from "../components/ui";
+import { BRAND } from "../lib/brand";
 import { useSignedIn } from "../lib/auth";
 import { friendlyError } from "../lib/authErrors";
 import {
@@ -84,7 +87,7 @@ export default function Onboarding() {
   // Leave only once the shared profile shows the finished setup, so the route guard agrees.
   const [finished, setFinished] = useState(false);
   useEffect(() => {
-    if (finished && profile?.onboardingComplete) navigate("/", { replace: true });
+    if (finished && profile?.onboardingComplete) navigate("/dashboard", { replace: true });
   }, [finished, profile?.onboardingComplete]);
 
   // Email sign-up sets the display name just after the account exists; pre-fill it when it arrives.
@@ -213,28 +216,31 @@ export default function Onboarding() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="border-b border-line bg-surface">
+      <header>
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <Link to="/" className={`flex items-center gap-2.5 rounded-md ${focusRing}`}>
+            <Logo className="h-7 w-7" />
+            <span className="text-lg font-semibold tracking-tight">{BRAND}</span>
+          </Link>
           <div className="flex items-center gap-3">
-            <Logo className="h-8 w-8" />
-            <span className="text-lg font-bold tracking-tight">Scam Shield</span>
+            <ThemeToggle />
+            {editing ? (
+              <LinkButton onClick={() => navigate("/dashboard")}>Cancel</LinkButton>
+            ) : (
+              <LinkButton onClick={() => void signOutUser()}>Sign out</LinkButton>
+            )}
           </div>
-          {editing ? (
-            <LinkButton onClick={() => navigate("/")}>Cancel</LinkButton>
-          ) : (
-            <LinkButton onClick={() => void signOutUser()}>Sign out</LinkButton>
-          )}
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
-        <Progress step={step} />
+      <main className="mx-auto max-w-2xl px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
+        <Stepper step={step} total={3} label={STEPS[step].title} />
 
-        <div key={step} className="animate-step mt-8 rounded-xl bg-surface p-6 shadow-card ring-1 ring-line sm:p-8">
-          <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold tracking-tight focus:outline-none sm:text-3xl">
+        <div key={step} className="animate-step mt-8 rounded-card bg-surface p-6 shadow-card ring-1 ring-line/70 sm:p-10">
+          <h1 ref={heading} tabIndex={-1} className="text-2xl font-semibold focus:outline-none sm:text-3xl">
             {STEPS[step].title}
           </h1>
-          <p className="mt-2 text-base text-muted">{STEPS[step].intro}</p>
+          <p className="mt-2 text-base text-ink-2">{STEPS[step].intro}</p>
 
           <form noValidate onSubmit={(e) => void submit(e)} className="mt-8 space-y-6">
             {saveError && <Banner kind="error">{saveError}</Banner>}
@@ -287,10 +293,8 @@ export default function Onboarding() {
 
             {step === 2 && (
               <>
-                <div className="flex gap-3 rounded-lg bg-info-soft p-4 text-base ring-1 ring-inset ring-accent/20">
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-5 w-5 shrink-0 text-accent" aria-hidden="true">
-                    <path fillRule="evenodd" d="M10 1.9 3 4.7v4.6c0 4 2.8 7.4 7 8.8 4.2-1.4 7-4.8 7-8.8V4.7L10 1.9Z" clipRule="evenodd" />
-                  </svg>
+                <div className="flex gap-3 rounded-control bg-accent-tint p-4 text-base">
+                  <ShieldCheck size={20} strokeWidth={1.5} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
                   <p>
                     If we detect a likely scam during your call, we can send this person a short alert so they can check on you. They'll never hear
                     your calls or see recordings.
@@ -361,7 +365,7 @@ export default function Onboarding() {
                 </ReviewSection>
                 <ReviewSection title="Trusted contact" onEdit={() => edit(2)} editLabel={skipped ? "Add" : "Edit"}>
                   {skipped ? (
-                    <p className="text-base text-muted">No trusted contact yet. You can add one now or later from your dashboard.</p>
+                    <p className="text-base text-ink-2">No trusted contact yet. You can add one now or later from your dashboard.</p>
                   ) : (
                     <>
                       <Row label="Name" value={form.contactName.trim()} />
@@ -399,33 +403,11 @@ export default function Onboarding() {
   );
 }
 
-function Progress({ step }: { step: Step }) {
-  return (
-    <div>
-      <div className="flex items-baseline justify-between text-base">
-        <span className="font-semibold text-accent">Step {step} of 3</span>
-        <span className="text-muted">{STEPS[step].title}</span>
-      </div>
-      <div
-        className="mt-3 h-2 overflow-hidden rounded-full bg-line"
-        role="progressbar"
-        aria-label="Setup progress"
-        aria-valuemin={1}
-        aria-valuemax={3}
-        aria-valuenow={step}
-        aria-valuetext={`Step ${step} of 3: ${STEPS[step].title}`}
-      >
-        <div className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out" style={{ width: `${(step / 3) * 100}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function ReviewSection({ title, onEdit, editLabel = "Edit", children }: { title: string; onEdit: () => void; editLabel?: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg ring-1 ring-line">
+    <section className="rounded-control bg-subtle/60 ring-1 ring-line">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className="text-base font-semibold">{title}</h2>
         <LinkButton onClick={onEdit} aria-label={`${editLabel} ${title.toLowerCase()}`}>
           {editLabel}
         </LinkButton>
@@ -438,7 +420,7 @@ function ReviewSection({ title, onEdit, editLabel = "Edit", children }: { title:
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-1 gap-1 sm:grid-cols-[10rem_1fr]">
-      <dt className="text-base text-muted">{label}</dt>
+      <dt className="text-sm text-ink-2">{label}</dt>
       <dd className="break-words text-base font-medium">{value}</dd>
     </div>
   );

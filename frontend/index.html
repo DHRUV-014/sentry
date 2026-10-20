@@ -3,7 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Scam Shield</title>
+    <meta name="description" content="Sentry listens for scam patterns in calls and recordings, and checks what the caller claims against official sources." />
+    <title>Sentry</title>
+    <script>
+      // Set the theme before first paint so there's no light/dark flash (see src/lib/theme.ts).
+      (function () {
+        var pref = null;
+        try {
+          pref = localStorage.getItem("sentry-theme");
+        } catch (e) {}
+        var dark = pref ? pref === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

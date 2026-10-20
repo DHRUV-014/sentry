@@ -1,5 +1,8 @@
+import { ArrowRight, BadgeCheck, CircleCheck, CircleHelp, CircleMinus, ExternalLink, Info, OctagonAlert, Phone, Square, SquareCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import InstitutionPicker, { type Institution } from "./components/InstitutionPicker";
+import { Banner, Button, Card, RISK, RiskBadge, Skeleton, Toast, buttonClass, focusRing, inputClass } from "./components/ui";
+import { addRecentCheck, timeAgo } from "./lib/recentChecks";
 import type { Level } from "./lib/types";
 
 type Lang = "en" | "hi";
@@ -100,30 +103,6 @@ const CHECK_TITLE: Record<string, Bi> = {
   advisory: { en: "Government warnings", hi: "सरकारी चेतावनियाँ" },
   public_reports: { en: "Public fraud reports", hi: "धोखाधड़ी की सार्वजनिक शिकायतें" },
 };
-const VERDICT_STYLE: Record<string, string> = {
-  MISMATCH: "bg-red-600",
-  REPORTS_FOUND: "bg-orange-600",
-  ADVISORY_FOUND: "bg-sky-700",
-  MATCH: "bg-emerald-700",
-  NO_REPORTS_FOUND: "bg-slate-600",
-  UNKNOWN: "bg-slate-600",
-  UNAVAILABLE: "bg-slate-700",
-};
-const VERDICT_LABEL: Record<string, Bi> = {
-  MATCH: { en: "MATCH", hi: "नंबर सही" },
-  MISMATCH: { en: "MISMATCH", hi: "नंबर मेल नहीं खाता" },
-  UNKNOWN: { en: "UNKNOWN", hi: "पता नहीं" },
-  ADVISORY_FOUND: { en: "ADVISORY FOUND", hi: "चेतावनी मिली" },
-  REPORTS_FOUND: { en: "REPORTS FOUND", hi: "शिकायतें मिलीं" },
-  NO_REPORTS_FOUND: { en: "NO REPORTS FOUND", hi: "कोई शिकायत नहीं मिली" },
-  UNAVAILABLE: { en: "UNAVAILABLE", hi: "उपलब्ध नहीं" },
-};
-const LEVEL_BG: Record<Level, string> = {
-  LOW: "bg-emerald-700",
-  MEDIUM: "bg-amber-600",
-  HIGH: "bg-orange-600",
-  CRITICAL: "bg-red-700",
-};
 const LEVEL_TEXT: Record<Level, Bi> = {
   LOW: { en: "Low risk", hi: "कम खतरा" },
   MEDIUM: { en: "Be careful", hi: "सावधान रहें" },
@@ -168,66 +147,164 @@ const VERIFY_LABEL: Record<string, Bi> = {
   REPORTS_FOUND: { en: "Fraud reports found online", hi: "इंटरनेट पर धोखाधड़ी की शिकायतें मिलीं" },
 };
 
+// Each verdict: icon + label (never colour alone). Red/green only where it is a risk signal.
+const VERDICT: Record<string, { label: Bi; icon: LucideIcon; cls: string }> = {
+  MATCH: { label: { en: "Verified", hi: "नंबर सही" }, icon: BadgeCheck, cls: "bg-risk-low text-white" },
+  MISMATCH: { label: { en: "Mismatch", hi: "नंबर मेल नहीं खाता" }, icon: OctagonAlert, cls: "bg-risk-critical text-white" },
+  UNKNOWN: { label: { en: "Not verified", hi: "पता नहीं" }, icon: CircleHelp, cls: "bg-subtle text-ink ring-1 ring-inset ring-line" },
+  ADVISORY_FOUND: { label: { en: "Warning found", hi: "चेतावनी मिली" }, icon: Info, cls: "bg-accent text-accent-ink" },
+  REPORTS_FOUND: { label: { en: "Reports found", hi: "शिकायतें मिलीं" }, icon: TriangleAlert, cls: "bg-risk-high text-white" },
+  NO_REPORTS_FOUND: { label: { en: "No reports found", hi: "कोई शिकायत नहीं मिली" }, icon: CircleCheck, cls: "bg-subtle text-ink ring-1 ring-inset ring-line" },
+  UNAVAILABLE: { label: { en: "Unavailable", hi: "उपलब्ध नहीं" }, icon: CircleMinus, cls: "bg-subtle text-ink ring-1 ring-inset ring-line" },
+};
+
+function VerdictBadge({ verdict, t }: { verdict: string; t: (b: Bi) => string }) {
+  const v = VERDICT[verdict] ?? { label: { en: verdict, hi: verdict }, icon: CircleHelp, cls: "bg-subtle text-ink" };
+  const Icon = v.icon;
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-sm font-semibold ${v.cls}`}>
+      <Icon size={16} strokeWidth={2} aria-hidden="true" />
+      {t(v.label)}
+    </span>
+  );
+}
+
 function Breakdown({ res, t }: { res: Response; t: (b: Bi) => string }) {
-  const rows: { label: string; effect: string; tone: string }[] = [];
+  const rows: { label: string; effect: string }[] = [];
   for (const c of res.contributions) {
     const parts = c.signal.split(".");
     if (parts[0] === "coercion" && parts.length === 3 && TACTIC_LABEL[parts[1]]) {
       const src = SOURCE_LABEL[parts[2]] ? ` (${t(SOURCE_LABEL[parts[2]])})` : "";
-      rows.push({ label: `${t(TACTIC_LABEL[parts[1]])}${src}`, effect: `+${(c.value * c.weight).toFixed(2)}`, tone: "text-red-300" });
+      rows.push({ label: `${t(TACTIC_LABEL[parts[1]])}${src}`, effect: `+${(c.value * c.weight).toFixed(2)}` });
     } else if (c.signal === "coercion.chain_factor") {
       rows.push({
         label: t({ en: "Scam-pattern stages reached (multiplier)", hi: "धोखाधड़ी के तरीके के चरण (गुणक)" }),
         effect: `× ${c.value.toFixed(2)}`,
-        tone: "text-slate-300",
       });
     } else if (c.signal === "coercion.protective") {
       rows.push({
         label: t({ en: "Genuine advice heard (lowers risk)", hi: "असली सलाह सुनी गई (खतरा कम)" }),
-        effect: `${(c.value * 100).toFixed(0)}%`,
-        tone: "text-emerald-300",
+        effect: `−${(c.value * 100).toFixed(0)}%`,
       });
     } else if (parts[0] === "verify") {
-      rows.push({ label: t(VERIFY_LABEL[parts[1]] ?? { en: parts[1], hi: parts[1] }), effect: `+${c.weight.toFixed(2)}`, tone: "text-orange-300" });
+      rows.push({ label: t(VERIFY_LABEL[parts[1]] ?? { en: parts[1], hi: parts[1] }), effect: `+${c.weight.toFixed(2)}` });
     }
   }
   return (
-    <div className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
-      <div className="mb-3 text-2xl text-slate-300">{t({ en: "Why this level", hi: "यह स्तर क्यों" })}</div>
-      <table className="w-full text-xl">
+    <Card className="p-6" aria-labelledby="breakdown-h">
+      <h2 id="breakdown-h" className="mb-3 text-sm font-semibold">
+        {t({ en: "Why this level", hi: "यह स्तर क्यों" })}
+      </h2>
+      <table className="w-full text-base">
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td className="py-1 text-slate-400">{t({ en: "No warning signs reported", hi: "कोई खतरे का संकेत नहीं बताया गया" })}</td>
+              <td className="py-1 text-ink-2">{t({ en: "No warning signs reported", hi: "कोई खतरे का संकेत नहीं बताया गया" })}</td>
             </tr>
           )}
           {rows.map((r, i) => (
-            <tr key={i} className="border-b border-slate-800">
-              <td className="py-2">{r.label}</td>
-              <td className={`py-2 text-right font-mono ${r.tone}`}>{r.effect}</td>
+            <tr key={i} className="border-b border-line">
+              <td className="py-2.5 pr-4">{r.label}</td>
+              <td className="py-2.5 text-right font-medium tabular-nums">{r.effect}</td>
             </tr>
           ))}
           <tr>
-            <td className="pt-3 text-slate-400">{t({ en: "Warning-sign score", hi: "खतरे के संकेतों का स्कोर" })}</td>
-            <td className="pt-3 text-right font-mono">{res.coercion_score.toFixed(2)}</td>
+            <td className="pt-3 text-ink-2">{t({ en: "Warning-sign score", hi: "खतरे के संकेतों का स्कोर" })}</td>
+            <td className="pt-3 text-right tabular-nums">{res.coercion_score.toFixed(2)}</td>
           </tr>
           <tr>
-            <td className="text-slate-300">{t({ en: "Final score (with online checks)", hi: "अंतिम स्कोर (ऑनलाइन जाँच सहित)" })}</td>
-            <td className="text-right font-mono font-bold">{res.score.toFixed(2)} → {res.level}</td>
+            <td className="pt-1 font-medium">{t({ en: "Final score (with online checks)", hi: "अंतिम स्कोर (ऑनलाइन जाँच सहित)" })}</td>
+            <td className="pt-1 text-right font-semibold tabular-nums">
+              {res.score.toFixed(2)} → {res.level}
+            </td>
           </tr>
         </tbody>
       </table>
       {res.caps_applied.map((c) => (
-        <div key={c} className="mt-2 text-lg text-amber-300">
-          • {t(CAP_LABEL[c] ?? { en: c, hi: c })}
-        </div>
+        <p key={c} className="mt-3 flex gap-2 text-sm text-ink-2">
+          <Info size={16} strokeWidth={1.5} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+          {t(CAP_LABEL[c] ?? { en: c, hi: c })}
+        </p>
       ))}
-      <div className="mt-2 text-base text-slate-500">LOW &lt; 0.30 ≤ MEDIUM &lt; 0.55 ≤ HIGH &lt; 0.80 ≤ CRITICAL</div>
-    </div>
+      <p className="mt-3 text-xs tabular-nums text-ink-2">LOW &lt; 0.30 ≤ MEDIUM &lt; 0.55 ≤ HIGH &lt; 0.80 ≤ CRITICAL</p>
+    </Card>
   );
 }
 
-const input = "w-full rounded-2xl bg-slate-800 px-5 py-4 text-2xl text-white ring-2 ring-slate-600 focus:ring-sky-400 focus:outline-none";
+/** One "Is this true?" result: what the caller said, what the official source says, and where from. */
+function CheckCard({ c, t, now }: { c: CheckResult; t: (b: Bi) => string; now: number }) {
+  const said = c.check === "institution_contact" ? [c.input.institution, c.input.phone].filter(Boolean).join(" · ") : null;
+  const when = c.fetched_at ?? c.sources[0]?.fetched_at ?? null;
+  return (
+    <Card className="p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h3 className="text-lg font-semibold">{t(CHECK_TITLE[c.check])}</h3>
+        <div className="flex items-center gap-2">
+          {c.confidence === "low" && <span className="text-xs font-medium text-ink-2">{t(T.lowConf)}</span>}
+          <VerdictBadge verdict={c.verdict} t={t} />
+        </div>
+      </div>
+
+      {said && (
+        <div className="mt-4 grid items-center gap-2 rounded-control bg-subtle p-4 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+          <div>
+            <div className="text-xs font-medium text-ink-2">{t({ en: "Caller said", hi: "कॉल करने वाले ने कहा" })}</div>
+            <div className="mt-0.5 font-medium tabular-nums">{said}</div>
+          </div>
+          <ArrowRight size={18} strokeWidth={1.5} className="hidden text-ink-2 sm:block" aria-hidden="true" />
+          <div>
+            <div className="text-xs font-medium text-ink-2">{t({ en: "Truth", hi: "सच" })}</div>
+            <div className="mt-0.5 font-medium tabular-nums">
+              {c.official_contact ? `${t(T.official)}: ${c.official_contact}` : t(VERDICT[c.verdict]?.label ?? { en: c.verdict, hi: c.verdict })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-base">{t(c.note)}</p>
+
+      {c.official_contact && (
+        <a href={`tel:${c.official_contact.replace(/\s/g, "")}`} className={`${buttonClass("primary", "lg")} mt-4`}>
+          <Phone size={18} strokeWidth={1.5} aria-hidden="true" />
+          {t({ en: "Call the official number", hi: "आधिकारिक नंबर पर कॉल करें" })}: <span className="tabular-nums">{c.official_contact}</span>
+        </a>
+      )}
+
+      {c.sources.length > 0 && (
+        <div className="mt-5">
+          <div className="text-xs font-semibold uppercase tracking-wide text-ink-2">{t(T.sources)}</div>
+          <ul className="mt-2 space-y-3">
+            {c.sources.map((s, j) => (
+              <li key={j}>
+                <a href={s.url} target="_blank" rel="noreferrer" className={`inline-flex items-start gap-1.5 rounded-sm font-medium text-accent underline-offset-4 hover:underline ${focusRing}`}>
+                  {s.title || s.url}
+                  <ExternalLink size={14} strokeWidth={1.5} className="mt-1 shrink-0" aria-hidden="true" />
+                  <span className="sr-only">(opens in a new tab)</span>
+                </a>
+                <div className="text-xs text-ink-2">{new URL(s.url).hostname}</div>
+                {s.snippet && <div className="mt-0.5 text-sm italic text-ink-2">“{s.snippet}”</div>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-4 text-xs tabular-nums text-ink-2">
+        {c.cached && c.fetched_at
+          ? `${t(T.cached)} ${new Date(c.fetched_at).toLocaleString()}`
+          : c.status === "ok" && when
+            ? `${t({ en: "Checked", hi: "जाँचा गया" })} ${timeAgo(when, now)} · ${(c.latency_ms / 1000).toFixed(1)} s`
+            : c.status === "ok" && `${(c.latency_ms / 1000).toFixed(1)} s`}
+      </div>
+    </Card>
+  );
+}
+
+const label = "mb-2 block text-base font-semibold";
+const chip = (on: boolean) =>
+  `inline-flex min-h-11 items-center gap-2 rounded-control px-4 text-base transition-colors duration-150 ${focusRing} ${
+    on ? "bg-accent-tint font-semibold text-ink ring-2 ring-inset ring-accent" : "bg-surface text-ink ring-1 ring-inset ring-line hover:bg-subtle"
+  }`;
 
 export default function Check() {
   const [lang, setLang] = useState<Lang>("en");
@@ -282,6 +359,14 @@ export default function Check() {
         setError(body.detail ?? `error ${r.status}`);
       } else {
         setRes(body);
+        // Dashboard "Recent checks" (this browser only): who they claimed to be, never the number.
+        const resolved = (body as Response).institution_match?.institution;
+        addRecentCheck({
+          at: new Date().toISOString(),
+          level: body.level,
+          claimed: resolved?.name ?? TYPES.find(([v]) => v === type)?.[1].en ?? type,
+          verdict: (body as Response).checks.find((c) => c.check === "institution_contact")?.verdict ?? null,
+        });
       }
     } catch {
       setError("backend unreachable");
@@ -291,19 +376,22 @@ export default function Check() {
     }
   };
 
+  const now = Date.now();
   return (
-    <main className="mx-auto max-w-5xl space-y-8 p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-5xl font-black">{t(T.title)}</h1>
-          <p className="mt-2 text-2xl text-slate-300">{t(T.intro)}</p>
+    <main className="mx-auto max-w-3xl space-y-8 px-4 py-8 sm:px-6 sm:py-10">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-xl">
+          <h1 className="text-2xl font-semibold sm:text-3xl">{t(T.title)}</h1>
+          <p className="mt-2 text-base text-ink-2">{t(T.intro)}</p>
         </div>
-        <div className="flex rounded-2xl bg-slate-800 p-1 text-2xl">
+        <div className="flex rounded-control bg-subtle p-1" role="group" aria-label="Language">
           {(["en", "hi"] as Lang[]).map((l) => (
             <button
               key={l}
+              type="button"
+              aria-pressed={lang === l}
               onClick={() => setLang(l)}
-              className={`rounded-xl px-5 py-2 font-bold ${lang === l ? "bg-white text-slate-900" : "text-slate-300"}`}
+              className={`min-h-10 rounded-[8px] px-4 text-sm font-semibold transition-colors ${focusRing} ${lang === l ? "bg-surface text-ink shadow-sm" : "text-ink-2 hover:text-ink"}`}
             >
               {l === "en" ? "English" : "हिन्दी"}
             </button>
@@ -311,208 +399,187 @@ export default function Check() {
         </div>
       </header>
 
-      <section className="space-y-6 rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
-        <div>
-          <div className="mb-3 text-2xl font-semibold">{t(T.who)}</div>
-          <div className="flex flex-wrap gap-3">
-            {TYPES.map(([v, label]) => (
+      <Card className="space-y-8 p-6 sm:p-8">
+        <fieldset>
+          <legend className={label}>{t(T.who)}</legend>
+          <div className="flex flex-wrap gap-2">
+            {TYPES.map(([v, l]) => (
               <button
                 key={v}
+                type="button"
+                aria-pressed={type === v}
                 onClick={() => {
                   setType(v);
                   setInstitutionId(null);
                 }}
-                className={`rounded-2xl px-5 py-3 text-2xl ${type === v ? "bg-sky-600 font-bold" : "bg-slate-800 text-slate-300"}`}
+                className={chip(type === v)}
               >
-                {t(label)}
+                {t(l)}
               </button>
             ))}
           </div>
-        </div>
+        </fieldset>
         {searchable ? (
           <div>
-            <div className="mb-2 text-2xl font-semibold">{t(T.name)}</div>
-            <InstitutionPicker
-              items={directory}
-              type={type}
-              value={institutionId}
-              text={name}
-              onPick={setInstitutionId}
-              onText={setName}
-              t={t}
-            />
+            <div className={label} id="inst-label">
+              {t(T.name)}
+            </div>
+            <InstitutionPicker items={directory} type={type} value={institutionId} text={name} onPick={setInstitutionId} onText={setName} t={t} />
           </div>
         ) : (
-          <div className="rounded-2xl bg-slate-800 p-5 text-xl text-slate-300">
+          <Banner kind="info">
             {t({
               en: "We never search people's names online. We'll check the number and what they asked you to do.",
               hi: "हम लोगों के नाम कभी ऑनलाइन नहीं खोजते। हम नंबर और उनकी माँगों की जाँच करेंगे।",
             })}
-          </div>
+          </Banner>
         )}
         <label className="block">
-          <div className="mb-2 text-2xl font-semibold">{t(T.phone)}</div>
-          <input className={input} inputMode="tel" value={phone} placeholder="98765 43210" onChange={(e) => setPhone(e.target.value)} />
+          <span className={label}>{t(T.phone)}</span>
+          <input className={`${inputClass} ring-line tabular-nums`} inputMode="tel" value={phone} placeholder="98765 43210" onChange={(e) => setPhone(e.target.value)} />
         </label>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 sm:grid-cols-2">
           <label className="block">
-            <div className="mb-2 text-xl">{t(T.upi)}</div>
-            <input className={input} value={upi} placeholder="name@bank" onChange={(e) => setUpi(e.target.value)} />
+            <span className="mb-2 block text-sm font-medium">{t(T.upi)}</span>
+            <input className={`${inputClass} ring-line`} value={upi} placeholder="name@bank" onChange={(e) => setUpi(e.target.value)} />
           </label>
           <label className="block">
-            <div className="mb-2 text-xl">{t(T.url)}</div>
-            <input className={input} value={url} placeholder="example.com" onChange={(e) => setUrl(e.target.value)} />
+            <span className="mb-2 block text-sm font-medium">{t(T.url)}</span>
+            <input className={`${inputClass} ring-line`} value={url} placeholder="example.com" onChange={(e) => setUrl(e.target.value)} />
           </label>
         </div>
-        <div>
-          <div className="mb-3 text-2xl font-semibold">{t(T.asked)}</div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {ASKS.map(([v, label]) => {
+        <fieldset>
+          <legend className={label}>{t(T.asked)}</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {ASKS.map(([v, l]) => {
               const on = asked.includes(v);
+              const Icon = on ? SquareCheck : Square;
               return (
                 <button
                   key={v}
+                  type="button"
+                  aria-pressed={on}
                   onClick={() => setAsked(on ? asked.filter((a) => a !== v) : [...asked, v])}
-                  className={`flex items-center gap-4 rounded-2xl px-5 py-4 text-left text-2xl ${on ? "bg-red-700 font-bold" : "bg-slate-800 text-slate-300"}`}
+                  className={`${chip(on)} justify-start text-left`}
                 >
-                  <span className="text-3xl">{on ? "☑" : "☐"}</span>
-                  {t(label)}
+                  <Icon size={20} strokeWidth={1.5} className={on ? "text-accent" : "text-ink-2"} aria-hidden="true" />
+                  {t(l)}
                 </button>
               );
             })}
           </div>
-        </div>
+        </fieldset>
         <label className="block">
-          <div className="mb-2 text-xl">{t(T.message)}</div>
-          <textarea className={`${input} h-28`} value={message} onChange={(e) => setMessage(e.target.value)} />
+          <span className="mb-2 block text-sm font-medium">{t(T.message)}</span>
+          <textarea className={`${inputClass} ring-line h-28`} value={message} onChange={(e) => setMessage(e.target.value)} />
         </label>
-        <button
-          disabled={busy}
-          onClick={() => void submit()}
-          className="w-full rounded-2xl bg-emerald-600 py-5 text-4xl font-black hover:bg-emerald-500 disabled:opacity-60"
-        >
-          {busy ? t(T.checking) : t(T.submit)}
-        </button>
-        {error && <div className="rounded-xl bg-red-900/60 p-4 text-2xl">⚠ {error}</div>}
-      </section>
+        <Button size="lg" className="w-full" loading={busy} loadingText={t(T.checking)} onClick={() => void submit()}>
+          {t(T.submit)}
+        </Button>
+      </Card>
+
+      {busy && (
+        <div className="space-y-4" aria-hidden="true">
+          <Skeleton className="h-36 w-full rounded-card" />
+          <Skeleton className="h-48 w-full rounded-card" />
+        </div>
+      )}
 
       {res && (
-        <section className="space-y-6">
-          <div className={`rounded-3xl p-8 ${LEVEL_BG[res.level]}`}>
-            <div className="text-xl uppercase tracking-widest opacity-90">
-              {t(T.risk)} · {res.level} · {res.score.toFixed(2)}
-              {elapsed != null && ` · ${elapsed.toFixed(1)} s`}
+        <section className="animate-step space-y-6" aria-label={t({ en: "Result", hi: "नतीजा" })}>
+          <div className={`rounded-card p-6 ring-1 ring-inset ring-line sm:p-8 ${RISK[res.level].tint}`}>
+            <div className="flex flex-wrap items-center gap-3">
+              <RiskBadge level={res.level} size="lg" />
+              <span className="text-sm tabular-nums text-ink-2">
+                {t(T.risk)} {res.score.toFixed(2)}
+                {elapsed != null && ` · ${elapsed.toFixed(1)} s`}
+              </span>
             </div>
-            <div className="mt-1 text-5xl font-black">{t(LEVEL_TEXT[res.level])}</div>
+            <p className="mt-4 font-display text-4xl leading-none text-ink">{t(LEVEL_TEXT[res.level])}</p>
+            {res.top_reasons[0] && <p className="mt-3 text-lg text-ink">{t(res.top_reasons[0])}</p>}
           </div>
 
-          <div className="rounded-3xl bg-white p-8 text-slate-900">
-            <div className="mb-4 text-3xl font-black">{t(T.steps)}</div>
-            <ol className="list-decimal space-y-3 pl-8 text-2xl font-semibold">
+          <Card className="p-6 sm:p-8" aria-labelledby="steps-h">
+            <h2 id="steps-h" className="text-xl font-semibold">
+              {t(T.steps)}
+            </h2>
+            <ol className="mt-4 space-y-3">
               {res.next_steps.map((s, i) => (
-                <li key={i}>{t(s)}</li>
+                <li key={i} className="flex gap-3 text-lg">
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-tint text-sm font-semibold tabular-nums text-accent">
+                    {i + 1}
+                  </span>
+                  {t(s)}
+                </li>
               ))}
             </ol>
-          </div>
+          </Card>
 
-          {res.verification_status !== "ok" && (
-            <div className="rounded-2xl bg-amber-900/60 p-5 text-2xl">{t(T.unavailable)}</div>
-          )}
-
-          {res.top_reasons.length > 0 && (
-            <div className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
-              <div className="mb-3 text-2xl text-slate-300">{t(T.why)}</div>
-              <ul className="space-y-2 text-2xl">
-                {res.top_reasons.map((r, i) => (
-                  <li key={i}>• {t(r)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {res.verification_status !== "ok" && <Banner kind="info">{t(T.unavailable)}</Banner>}
 
           {res.institution_note && (
-            <div className="rounded-3xl bg-amber-900/50 p-6 ring-2 ring-amber-600">
-              <p className="text-2xl">{t(res.institution_note)}</p>
+            <Card className="p-6">
+              <p className="text-base">{t(res.institution_note)}</p>
               {["ambiguous", "suggest"].includes(res.institution_match.status) && (
-                <div className="mt-4 flex flex-wrap gap-3">
+                <div className="mt-4 flex flex-wrap gap-2">
                   {res.institution_match.candidates.map((c) => (
-                    <button
+                    <Button
                       key={c.id}
-                      className="rounded-2xl bg-white px-5 py-3 text-2xl font-bold text-slate-900 hover:bg-sky-100"
+                      variant="secondary"
                       onClick={() => {
                         setInstitutionId(c.id);
                         void submit(c.id);
                       }}
                     >
                       {t({ en: "Did you mean", hi: "क्या आपका मतलब" })} {lang === "en" ? c.name : c.name_hi}?
-                    </button>
+                    </Button>
                   ))}
                 </div>
               )}
+            </Card>
+          )}
+
+          {res.checks.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">{t({ en: "Is this true?", hi: "क्या यह सच है?" })}</h2>
+              {res.checks.map((c, i) => (
+                <CheckCard key={i} c={c} t={t} now={now} />
+              ))}
             </div>
+          )}
+
+          {res.top_reasons.length > 1 && (
+            <Card className="p-6" aria-labelledby="why-h">
+              <h2 id="why-h" className="mb-3 text-sm font-semibold">
+                {t(T.why)}
+              </h2>
+              <ul className="space-y-2 text-base">
+                {res.top_reasons.map((r, i) => (
+                  <li key={i} className="border-l-2 border-risk-high/50 pl-3">
+                    {t(r)}
+                  </li>
+                ))}
+              </ul>
+            </Card>
           )}
 
           <Breakdown res={res} t={t} />
 
-          {res.checks.map((c, i) => (
-            <div key={i} className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-2xl font-bold">{t(CHECK_TITLE[c.check])}</div>
-                <div className="flex items-center gap-3">
-                  {c.confidence === "low" && <span className="text-lg text-amber-300">{t(T.lowConf)}</span>}
-                  <span className={`rounded-full px-4 py-1 text-xl font-bold ${VERDICT_STYLE[c.verdict] ?? "bg-slate-600"}`}>
-                    {VERDICT_LABEL[c.verdict] ? t(VERDICT_LABEL[c.verdict]) : c.verdict}
-                  </span>
-                </div>
-              </div>
-              <p className="mt-3 text-2xl">{t(c.note)}</p>
-              {c.official_contact && (
-                <a
-                  href={`tel:${c.official_contact.replace(/\s/g, "")}`}
-                  className="mt-4 inline-block rounded-2xl bg-emerald-600 px-6 py-3 text-3xl font-black"
-                >
-                  📞 {t(T.official)}: {c.official_contact}
-                </a>
-              )}
-              {c.sources.length > 0 && (
-                <div className="mt-4">
-                  <div className="text-lg text-slate-400">{t(T.sources)}</div>
-                  <ul className="mt-1 space-y-3">
-                    {c.sources.map((s, j) => (
-                      <li key={j}>
-                        <a href={s.url} target="_blank" rel="noreferrer" className="text-xl text-sky-300 underline">
-                          {s.title || s.url}
-                        </a>
-                        <div className="text-base text-slate-400">{new URL(s.url).hostname}</div>
-                        {s.snippet && <div className="text-lg italic text-slate-300">“{s.snippet}”</div>}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="mt-3 text-base text-slate-500">
-                {c.cached && c.fetched_at
-                  ? `${t(T.cached)} ${new Date(c.fetched_at).toLocaleString()}`
-                  : c.status === "ok" && `${(c.latency_ms / 1000).toFixed(1)} s`}
-              </div>
-            </div>
-          ))}
-
           {res.text_analysis && (
-            <div className="rounded-3xl bg-slate-900 p-6 ring-1 ring-amber-700">
-              <div className="text-xl text-amber-300">{t(res.text_analysis.label)}</div>
-              <div className="mt-2 text-2xl">
-                {res.text_analysis.tactics.length ? res.text_analysis.tactics.join(" · ") : "—"}
-              </div>
+            <Card className="p-6">
+              <div className="text-sm font-semibold">{t(res.text_analysis.label)}</div>
+              <div className="mt-2 text-base">{res.text_analysis.tactics.length ? res.text_analysis.tactics.join(" · ") : "—"}</div>
               {res.text_analysis.protective.length > 0 && (
-                <div className="mt-2 text-xl text-emerald-300">
+                <div className="mt-2 text-base text-ink-2">
                   {t({ en: "Genuine advice found:", hi: "असली सलाह मिली:" })} “{res.text_analysis.protective.join("”, “")}”
                 </div>
               )}
-            </div>
+            </Card>
           )}
         </section>
       )}
+
+      {error && <Toast message={error} onClose={() => setError("")} />}
     </main>
   );
 }

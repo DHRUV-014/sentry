@@ -2,91 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-  font-size: 18px; /* projector-friendly base size; also keeps every input >= 16px */
-}
-
-/* Theme tokens as RGB channels so Tailwind opacity modifiers work (bg-accent/10). */
+/* "Trust Navy" tokens as RGB channels so Tailwind opacity modifiers work (bg-accent/10).
+   Components never use raw colours; they use these through tailwind.config.js. */
 :root {
-  --canvas: 248 250 252;
+  --canvas: 250 250 249;
   --surface: 255 255 255;
-  --subtle: 241 245 249;
-  --line: 214 221 230;
-  --ink: 15 23 42;
-  --muted: 84 98 120;
-  --accent: 29 92 214;
-  --accent-hover: 22 74 178;
+  --subtle: 244 244 242;
+  --line: 231 229 228;
+  --ink: 28 25 23;
+  --ink-2: 87 83 78;
+  --muted: 168 162 158; /* placeholders and decoration only: below AA for body text */
+  --accent: 30 58 95;
+  --accent-hover: 22 48 79;
+  --accent-pressed: 18 40 68;
+  --accent-tint: 238 242 247;
   --accent-ink: 255 255 255;
-  --danger: 185 28 28;
-  --danger-soft: 254 236 236;
-  --ok: 21 128 61;
-  --ok-soft: 230 246 236;
-  --info-soft: 232 240 254;
-  --shadow: 15 23 42;
+  --danger-text: 180 35 24; /* form error text: the critical colour, AA on surface */
+  --shadow: 28 25 23;
+
+  --risk-low: 47 125 91;
+  --risk-medium: 161 98 7;
+  --risk-high: 180 83 9;
+  --risk-critical: 180 35 24;
+  --risk-low-tint: 234 244 239;
+  --risk-medium-tint: 251 243 226;
+  --risk-high-tint: 252 239 227;
+  --risk-critical-tint: 251 234 232;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --canvas: 2 6 23;
-    --surface: 13 20 37;
-    --subtle: 22 31 51;
-    --line: 45 57 82;
-    --ink: 241 245 249;
-    --muted: 160 174 196;
-    --accent: 110 160 255;
-    --accent-hover: 145 184 255;
-    --accent-ink: 6 14 32;
-    --danger: 252 129 129;
-    --danger-soft: 60 18 24;
-    --ok: 110 220 150;
-    --ok-soft: 14 48 32;
-    --info-soft: 20 36 70;
+    --canvas: 15 17 21;
+    --surface: 23 26 32;
+    --subtle: 29 33 41;
+    --line: 38 42 51;
+    --ink: 236 237 238;
+    --ink-2: 161 167 176;
+    --muted: 107 114 128;
+    --accent: 143 169 201;
+    --accent-hover: 163 185 213;
+    --accent-pressed: 123 150 184;
+    --accent-tint: 27 36 51;
+    --accent-ink: 15 17 21;
+    --danger-text: 240 160 150; /* the critical red is below AA on dark surfaces */
     --shadow: 0 0 0;
+    --risk-low-tint: 22 39 31;
+    --risk-medium-tint: 42 33 19;
+    --risk-high-tint: 43 29 18;
+    --risk-critical-tint: 44 21 19;
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --canvas: 2 6 23;
-  --surface: 13 20 37;
-  --subtle: 22 31 51;
-  --line: 45 57 82;
-  --ink: 241 245 249;
-  --muted: 160 174 196;
-  --accent: 110 160 255;
-  --accent-hover: 145 184 255;
-  --accent-ink: 6 14 32;
-  --danger: 252 129 129;
-  --danger-soft: 60 18 24;
-  --ok: 110 220 150;
-  --ok-soft: 14 48 32;
-  --info-soft: 20 36 70;
+  --canvas: 15 17 21;
+  --surface: 23 26 32;
+  --subtle: 29 33 41;
+  --line: 38 42 51;
+  --ink: 236 237 238;
+  --ink-2: 161 167 176;
+  --muted: 107 114 128;
+  --accent: 143 169 201;
+  --accent-hover: 163 185 213;
+  --accent-pressed: 123 150 184;
+  --accent-tint: 27 36 51;
+  --accent-ink: 15 17 21;
+  --danger-text: 240 160 150;
   --shadow: 0 0 0;
+  --risk-low-tint: 22 39 31;
+  --risk-medium-tint: 42 33 19;
+  --risk-high-tint: 43 29 18;
+  --risk-critical-tint: 44 21 19;
   color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem; /* anchor targets clear the fixed landing navbar */
 }
 
 body {
   background: rgb(var(--canvas));
   color: rgb(var(--ink));
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.18);
+}
+
+/* Soft paper grain for brand surfaces (inline SVG noise, no image request). */
+.paper-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 @keyframes step-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateX(16px);
   }
 }
 .animate-step {
-  animation: step-in 200ms ease-out;
+  animation: step-in 250ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   .animate-step {
     animation: none;
   }
-  * {
+  *,
+  *::before,
+  *::after {
     transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.45);
   }
 }
