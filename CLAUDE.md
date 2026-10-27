@@ -73,6 +73,12 @@ Apps can't tap ordinary cellular calls; never claim otherwise in UI or docs.
   contact per call**, builds the content from fusion output, and logs latency.
 - A `contacts` table (name, E.164 phone, opt-in flag, revocable) exists from B4, so SMS and
   WhatsApp (B9) plug in as additional channels without changing the dispatcher.
+- **Email channel (Resend, `app/alerts/email.py`):** per contact, only to contacts with
+  `alert_consent` and an email. Fires from `EMAIL_ALERT_MIN_LEVEL` (default MEDIUM) and again on
+  each higher level, at most once per level per call; the dashboard keeps its HIGH, once-per-call
+  rule. Never includes transcript words. Failures mark `email` degraded and never affect detection.
+  Per-call recipients come from `CallAlerts(recipients=...)` (to be filled from the signed-in
+  user's Firestore trusted contact); without them it falls back to the `contacts` table.
 
 ## Stack
 
@@ -157,7 +163,7 @@ samples/                 local audio (gitignored); samples/synthetic_tts/ = rend
   `/dashboard`, `/demo`, `/check`. Sign out returns to `/`. The FastAPI endpoints are not authenticated yet:
   when the backend needs the user (for example B9 alerts to the trusted contact), verify the Firebase
   ID token on the server and never trust a uid sent by the client.
-- `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, storage`. Overall
+- `GET /health`: `stt, vad, lexicon, classifier, llm, voice, verify, alerts, email, storage`. Overall
   `degraded` unless the core (`stt, vad, lexicon, classifier, storage`) is ok.
 
 ## Events

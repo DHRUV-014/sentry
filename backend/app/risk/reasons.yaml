@@ -40,6 +40,10 @@ stage_names:
 
 alert:
   title:
+    # MEDIUM is used only by channels that fire below HIGH (email).
+    MEDIUM:
+      en: "Warning signs on a call right now"
+      hi: "अभी चल रही कॉल में धोखाधड़ी के संकेत"
     HIGH:
       en: "Possible scam call in progress"
       hi: "शायद धोखाधड़ी वाली कॉल चल रही है"
@@ -53,6 +57,30 @@ alert:
   action_default:
     en: "Call them now"
     hi: "उन्हें अभी फ़ोन करें"
+  # Email to the trusted contact (app/alerts/email.py). Transcript words are never included.
+  email:
+    level:
+      en: "Risk level: {level}"
+      hi: "जोखिम स्तर: {level}"
+    # {score} is the alert's fused risk score (0-1), shown with two decimals.
+    score:
+      en: "Risk Score: {score} / 1.00"
+      hi: "जोखिम स्कोर: {score} / 1.00"
+    reasons_heading:
+      en: "Why we think so"
+      hi: "हमें ऐसा क्यों लगता है"
+    claims_heading:
+      en: "What the caller claimed"
+      hi: "कॉल करने वाले ने क्या दावा किया"
+    claim_kinds:
+      phone: {en: "Phone number", hi: "फ़ोन नंबर"}
+      upi: {en: "UPI ID", hi: "यूपीआई आईडी"}
+      url: {en: "Website", hi: "वेबसाइट"}
+      case_id: {en: "Case number", hi: "केस नंबर"}
+      institution: {en: "Organisation", hi: "संस्था"}
+    footer:
+      en: "You are receiving this because you agreed to be a trusted contact on Sentry."
+      hi: "आपको यह इसलिए मिला क्योंकि आपने Sentry पर भरोसेमंद संपर्क बनने की सहमति दी है।"
 
 # Verification results (B6). {name} = institution, {official} = official number, {kind} = what was checked.
 verify:

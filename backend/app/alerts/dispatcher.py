@@ -1,9 +1,11 @@
-"""Alert dispatcher: fires once per call, on the first transition to HIGH or CRITICAL.
+"""Alert dispatcher: each channel fires when the call first reaches its `min_level` (dashboard:
+HIGH, once per call; email: EMAIL_ALERT_MIN_LEVEL, again on escalation, at most once per level).
 
 Content is built from fusion output only: level, title, top reasons, the caller's claims
 (institution, numbers, UPI IDs, case numbers), the verified official number when verification
 provides one, and a "Call <name> now" action. Every channel send has a timeout; the outcome and
-latency are logged and stored in the `alerts` table. A failed channel never blocks the others.
+latency are logged and stored in the `alerts` table. A failed channel never blocks the others,
+and is not retried on every utterance: it gets another chance only when the level rises.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from app.storage import Storage
 
 log = logging.getLogger(__name__)
 
-ALERT_LEVELS = (Level.HIGH, Level.CRITICAL)
+LEVEL_ORDER = [Level.LOW, Level.MEDIUM, Level.HIGH, Level.CRITICAL]
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,9 @@ class Contact:
     id: int
     name: str
     phone_e164: str
+    email: str | None = None
+    # The user agreed that this contact receives alerts. Per-contact channels never send without it.
+    alert_consent: bool = False
 
 
 class AlertPayload(BaseModel):
@@ -58,13 +63,27 @@ class CallAlerts:
         storage: Storage,
         elder_name: str,
         send_timeout_s: float,
+        recipients: list[Contact] | None = None,
     ) -> None:
         self.session_id = session_id
         self._channels = channels
         self._storage = storage
         self._elder_name = elder_name
         self._timeout = send_timeout_s
-        self.fired = False
+        # This call's recipients (the signed-in user's trusted contacts); None = stored contacts.
+        self._recipients = recipients
+        self._sent: dict[str, Level] = {}  # channel name -> highest level it fired at
+
+    @property
+    def fired(self) -> bool:
+        return bool(self._sent)
+
+    def _due(self, channel: AlertChannel, level: Level) -> bool:
+        rank = LEVEL_ORDER.index
+        if rank(level) < rank(channel.min_level):
+            return False
+        last = self._sent.get(channel.name)
+        return last is None or (channel.escalate and rank(level) > rank(last))
 
     def _build(
         self,
@@ -95,22 +114,35 @@ class CallAlerts:
     async def on_risk(
         self, risk: RiskPayload, claims: list[Entity], verification_status: str
     ) -> AlertPayload | None:
-        if self.fired or risk.level not in ALERT_LEVELS:
+        due = [c for c in self._channels if self._due(c, risk.level)]
+        if not due:
             return None
-        self.fired = True
+        for channel in due:
+            self._sent[channel.name] = risk.level
         t0 = time.perf_counter()
-        contacts = await self._storage.active_contacts()
-        alert = self._build(risk, claims, contacts, verification_status)
+        contacts = (
+            self._recipients
+            if self._recipients is not None
+            else await self._storage.active_contacts()
+        )
+        targets_by_channel: dict[str, list[Contact | None]] = {
+            c.name: [k for k in contacts if c.accepts(k)] if c.per_contact else [None] for c in due
+        }
+        reached = {k.id for ts in targets_by_channel.values() for k in ts if k is not None}
+        alert = self._build(
+            risk, claims, [k for k in contacts if k.id in reached], verification_status
+        )
         delivered, errors = [], []
-        for channel in self._channels:
-            targets: list[Contact | None] = contacts if channel.per_contact else [None]
-            for contact in targets:
+        for channel in due:
+            for contact in targets_by_channel[channel.name]:
                 try:
                     await asyncio.wait_for(channel.send(alert, contact), self._timeout)
                     delivered.append(channel.name)
                 except Exception as exc:  # includes TimeoutError
                     log.warning("alert channel %s failed: %r", channel.name, exc)
                     errors.append(f"{channel.name}: {exc!r}")
+        if not delivered and not errors:
+            return None  # only per-contact channels were due, and no contact qualifies
         latency_ms = round((time.perf_counter() - t0) * 1000, 1)
         log.info(
             "alert %s %s level=%s delivered=%s errors=%d latency=%.1fms",

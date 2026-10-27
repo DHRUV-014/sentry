@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -79,6 +80,18 @@ class Settings(BaseSettings):
     # Alerts. ELDER_NAME fills "Call <name> now" in family alerts (empty = "Call them now").
     elder_name: str = ""
     alert_send_timeout_s: float = Field(5.0, gt=0)
+
+    # Email alerts via Resend. No API key or sender -> email is "unconfigured", never faked.
+    # Sent only to trusted contacts with alert consent and an email address.
+    email_alerts_enabled: bool = True
+    resend_api_key: SecretStr | None = None
+    # A sender on a domain verified in Resend, e.g. "Sentry <alerts@example.com>".
+    email_alert_from: str = ""
+    # Lowest level that emails the family; a later, higher level emails again (at most once each).
+    email_alert_min_level: Literal["MEDIUM", "HIGH", "CRITICAL"] = "MEDIUM"
+    # TESTING ONLY: send every call's email alerts to this address (the developer's own inbox),
+    # until calls are linked to the signed-in user's trusted contact. Empty = off.
+    email_alert_test_to: str = ""
 
     # Verification (TinyFish Search + Fetch). No key -> verify is "unconfigured", never faked.
     tinyfish_api_key: SecretStr | None = None

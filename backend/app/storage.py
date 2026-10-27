@@ -182,7 +182,7 @@ class Storage:
         await self._db.commit()
 
     async def active_contacts(self) -> list:
-        """Opted-in, non-revoked contacts (alert recipients)."""
+        """Opted-in (consenting), non-revoked contacts (alert recipients)."""
         from app.alerts.dispatcher import Contact
 
         if self._db is None:
@@ -191,7 +191,7 @@ class Storage:
             "SELECT id, name, phone_e164 FROM contacts WHERE opted_in = 1 AND revoked_at IS NULL"
             " ORDER BY id"
         )
-        return [Contact(i, n, p) for i, n, p in await cursor.fetchall()]
+        return [Contact(i, n, p, alert_consent=True) for i, n, p in await cursor.fetchall()]
 
     async def cache_get(self, key: str) -> tuple[dict, datetime] | None:
         """Verification cache (official sources only; no transcripts)."""

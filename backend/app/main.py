@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.alerts.channels import DashboardChannel
 from app.alerts.dispatcher import CallAlerts
+from app.alerts.email import make_email_channel, test_recipients
 from app.analysis import CallAnalyzer
 from app.audio.buffer import FRAME_BYTES
 from app.audio.stt import FasterWhisperProvider, STTProvider
@@ -107,6 +108,7 @@ def create_app(
             log.exception("storage failed to open")
             components.set("storage", ComponentStatus.UNAVAILABLE, f"sqlite open failed: {exc}")
         _init_component_status(settings, components)
+        email_channel = make_email_channel(settings, components)
 
         classifier = vad_classifier
         if classifier is None:
@@ -165,10 +167,11 @@ def create_app(
                 analyzer=CallAnalyzer(engine, extractor) if engine and extractor else None,
                 alerts=CallAlerts(
                     session_id,
-                    [DashboardChannel(bus)],
+                    [DashboardChannel(bus), *([email_channel] if email_channel else [])],
                     storage,
                     settings.elder_name,
                     settings.alert_send_timeout_s,
+                    recipients=test_recipients(settings),
                 ),
             )
 

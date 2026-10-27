@@ -10,5 +10,6 @@ def test_health_reports_every_component(client):
     assert body["components"]["voice"]["status"] == "unavailable"
     assert body["components"]["verify"]["status"] == "unconfigured"  # no TINYFISH_API_KEY in tests
     assert body["components"]["alerts"]["status"] == "ok"  # dashboard channel
+    assert body["components"]["email"]["status"] == "unconfigured"  # no RESEND_API_KEY in tests
     # STT/VAD/lexicon aren't implemented yet, so the core pipeline is degraded, not "ok".
     assert body["status"] == "degraded"

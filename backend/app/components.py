@@ -8,7 +8,18 @@ from datetime import UTC, datetime
 
 from app.events import ComponentStatus
 
-COMPONENTS = ("stt", "vad", "lexicon", "classifier", "llm", "voice", "verify", "alerts", "storage")
+COMPONENTS = (
+    "stt",
+    "vad",
+    "lexicon",
+    "classifier",
+    "llm",
+    "voice",
+    "verify",
+    "alerts",
+    "email",
+    "storage",
+)
 
 # Components whose failure degrades the pipeline. Without the classifier the coercion score falls
 # back to the lexicon alone, which is reported as degraded.
